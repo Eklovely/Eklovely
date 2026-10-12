@@ -219,7 +219,7 @@ def check_rubric(answer: str, spec: Mapping[str, Any]) -> CheckResult:
         rule(count == spec["paragraphs"], f"{count} paragraphs, need {spec['paragraphs']}")
     if "bullets" in spec:
         rules = spec["bullets"]
-        bullets = [ln for ln in answer.splitlines() if re.match(r"\s*[-*•]\s+\S", ln)]
+        bullets = [ln for ln in answer.splitlines() if re.match(r"\s*[-*\u2022]\s+\S", ln)]
         if "exact" in rules:
             rule(len(bullets) == rules["exact"], f"{len(bullets)} bullets, need {rules['exact']}")
         if "max_words_each" in rules:

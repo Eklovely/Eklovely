@@ -51,6 +51,7 @@ def test_flags_work_before_and_after_the_subcommand() -> None:
     }
     assert overrides_from(parser.parse_args([])) == {}  # untouched flags never override the config
     assert parser.parse_args(["-y"]).yes is True
+    assert parser.parse_args(["ask", "x", "--git"]).git is True
 
 
 def test_flags_beat_env_and_config(tmp_path: Path, fake_ollama: FakeOllama) -> None:

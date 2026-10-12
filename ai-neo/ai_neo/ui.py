@@ -351,7 +351,7 @@ class RichUI(_BaseUI):
         self.interactive = sys.stdin.isatty()
 
     def _read(self, prompt: str) -> str:
-        return self.console.input(prompt)
+        return self.console.input(Text(prompt))  # Text: no markup parsing, no highlighting
 
     def say(self, text: str = "", *, dim: bool = False) -> None:
         self.console.print(text, style="dim" if dim else None, markup=False, highlight=False)

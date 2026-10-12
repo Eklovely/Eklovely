@@ -134,6 +134,12 @@ def common_options() -> argparse.ArgumentParser:
         default=sup,
         help="code mode: do not run and repair the model's code",
     )
+    group.add_argument(
+        "--git",
+        action="store_true",
+        default=sup,
+        help="build mode: git init and commit at checkpoints (off by default)",
+    )
     group.add_argument("--plain", action="store_true", default=sup, help="plain text, no colors")
     group.add_argument("--debug", action="store_true", default=sup, help="show tracebacks")
     return parent
@@ -349,19 +355,18 @@ class Repl:
         while True:
             try:
                 line = self.read_message().strip()
+                if not line:
+                    continue
+                if line.startswith("/"):
+                    if not self.handle_command(line):
+                        return EXIT_OK
+                else:
+                    self.ask_model(line)
             except EOFError:
                 self.ui.say()
                 return EXIT_OK
-            except KeyboardInterrupt:
+            except KeyboardInterrupt:  # Ctrl+C never leaves the program; /quit or Ctrl+D does
                 self.ui.say("\n(Ctrl+C stops a reply. Use /quit or Ctrl+D to leave.)", dim=True)
-                continue
-            if not line:
-                continue
-            if line.startswith("/"):
-                if not self.handle_command(line):
-                    return EXIT_OK
-            else:
-                self.ask_model(line)
 
     def handle_command(self, line: str) -> bool:
         """Run a slash command. Returns False when the user asked to quit."""
@@ -383,7 +388,10 @@ class Repl:
 
     def ask_model(self, text: str) -> TaskOutcome | None:
         opts = TaskOptions(
-            think=self.think, use_tools=self.tools_on, verify=self.verify_on, git=False
+            think=self.think,
+            use_tools=self.tools_on,
+            verify=self.verify_on,
+            git=bool(getattr(self.app.args, "git", False)),
         )
         try:
             outcome = self.stack.pipeline.run(self.session, text, opts)
@@ -660,6 +668,7 @@ def cmd_ask(app: App) -> int:
             verify=not getattr(args, "no_verify", False),
             tests=tests,
             auto_approve_plan=bool(getattr(args, "yes", False)),
+            git=bool(getattr(args, "git", False)),
         )
         outcome = stack.pipeline.run(session, prompt, opts)
         if outcome.stats.eval_count:
