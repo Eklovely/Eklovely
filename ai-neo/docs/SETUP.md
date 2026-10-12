@@ -36,25 +36,34 @@ You should see something like `Python 3.12.4`. If you see an error instead, jump
 
 ### Step 2: Get the AI Neo files
 
-If you have Git:
+**Option A - you have the ZIP file (`ai-neo.zip`):** right-click it, choose **Extract All...**, and
+extract it somewhere easy such as your Downloads folder. You get a folder named `ai-neo` that
+contains `pyproject.toml`.
+
+**Option B - from GitHub, if you have Git:** the code is on the branch
+`claude/sharp-hawking-vpztws` until it is merged into the main branch:
 
 ```powershell
 git clone https://github.com/Eklovely/Eklovely.git
+cd Eklovely
+git checkout claude/sharp-hawking-vpztws
 ```
 
-No Git? On the repository's GitHub page click **Code -> Download ZIP**, then right-click the ZIP and
-choose **Extract All**. Either way you end up with a folder that contains an `ai-neo` folder.
+(No Git? On the repository page choose that branch, click **Code -> Download ZIP**, and extract it;
+the project is the `ai-neo` folder inside.)
 
 ### Step 3: Open PowerShell in the project folder
 
 Use `cd` ("change directory") to go into the `ai-neo` folder. Adjust the path to where you put it:
 
 ```powershell
-cd $HOME\Eklovely\ai-neo
+cd $HOME\Downloads\ai-neo          # Option A (ZIP extracted into Downloads)
+cd $HOME\Eklovely\ai-neo           # Option B (cloned from GitHub)
 ```
 
 Tip: in File Explorer you can open the `ai-neo` folder, click the address bar, type `powershell` and
-press Enter to open PowerShell right there.
+press Enter to open PowerShell right there. (If Windows extracted the ZIP into a folder inside a
+folder of the same name, go one level deeper until you see `pyproject.toml`.)
 
 You should now see the folder name in the prompt, and `dir` should list `pyproject.toml`.
 
@@ -148,8 +157,9 @@ Ubuntu/Debian: `sudo apt install python3 python3-venv python3-pip`). Then:
 
 ```bash
 python3 --version                    # must be 3.11 or newer
-git clone https://github.com/Eklovely/Eklovely.git
-cd Eklovely/ai-neo
+# from the ZIP:      unzip ai-neo.zip && cd ai-neo
+# or from GitHub:    git clone https://github.com/Eklovely/Eklovely.git && cd Eklovely \
+#                      && git checkout claude/sharp-hawking-vpztws && cd ai-neo
 python3 -m venv .venv
 source .venv/bin/activate            # your prompt now starts with (.venv)
 python -m pip install --upgrade pip
