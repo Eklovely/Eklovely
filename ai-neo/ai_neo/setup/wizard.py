@@ -97,6 +97,8 @@ class Wizard:
         if self.state.was_corrupt:
             ui.tag("WARN", "The saved setup progress could not be read, so we start from the top.")
         try:
+            if not self._ensure_home():
+                return 1
             for number, step in enumerate(self.steps, 1):
                 if self._skip_finished(number, step):
                     continue
@@ -106,6 +108,23 @@ class Wizard:
             ui.say("\nInput ended. Progress is saved; run `ai-neo setup` to continue.")
             return 1
         return 1 if self.ctx.unresolved else 0
+
+    def _ensure_home(self) -> bool:
+        """AI Neo's own folder (settings, chats, logs, progress) is created only with permission."""
+        root = self.ctx.paths.root
+        if root.exists():
+            return True
+        question = (
+            f"AI Neo will keep its settings, saved chats, logs and setup progress in {root}. "
+            "Create that folder?"
+        )
+        if not self.ctx.consent(question, kind="write"):
+            self.ctx.ui.say(
+                "Okay. Set AI_NEO_HOME to a folder you prefer and run `ai-neo setup` again."
+            )
+            return False
+        root.mkdir(parents=True, exist_ok=True)
+        return True
 
     def _skip_finished(self, number: int, step: Step) -> bool:
         record = self.state.finished(step.id)
@@ -197,7 +216,6 @@ def run_setup(
 ) -> int:
     from ai_neo.setup.steps import STEPS
 
-    paths.root.mkdir(parents=True, exist_ok=True)
     if reset and paths.state.exists():
         paths.state.unlink()
     ctx = SetupContext(

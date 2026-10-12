@@ -63,7 +63,7 @@ temperature 0.6 / top_p 0.95 / top_k 20; non-thinking uses 0.7 / 0.8 / 20.
 | `ai-neo` / `ai-neo chat` | interactive chat (offers the setup wizard on first run) |
 | `ai-neo ask "..." [--mode M] [--tests FILE]` | one question; reads stdin if no question is given. Exit code 1 if the answer failed its checks |
 | `ai-neo setup [--non-interactive] [--reset]` | guided setup wizard |
-| `ai-neo doctor` | non-interactive health check; exits non-zero on any FAIL |
+| `ai-neo doctor` | non-interactive health check (Python, config, RAM, disk, GPU, Ollama, model, workspace, governor, and a quick offline self-test of the tools and safety guards); prints PASS / WARN / FAIL with a one-line fix; exits non-zero on any FAIL |
 | `ai-neo eval --suite evals/ --report out.json [--baseline base.json] [--category C]` | run the evaluation harness |
 | `ai-neo export-dataset [--out FILE] [--include-governed]` | export verified, local-only outputs |
 | `ai-neo config` | print the settings in effect |

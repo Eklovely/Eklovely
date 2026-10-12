@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -242,16 +243,30 @@ def check_workspace(cfg: Config) -> Check:
 
 
 def check_userdata(paths: Paths) -> Check:
-    problem = _writable(paths.root)
+    root = paths.root
+    if not root.exists():
+        ancestor = next((p for p in root.parents if p.exists()), root)
+        if os.access(ancestor, os.W_OK):
+            return Check(
+                "userdata", "AI Neo data folder", Status.OK, f"{root} will be created when needed"
+            )
+        return Check(
+            "userdata",
+            "AI Neo data folder",
+            Status.FAIL,
+            f"{root} cannot be created",
+            "Set AI_NEO_HOME to a folder you can write to.",
+        )
+    problem = _writable(root)
     if problem:
         return Check(
             "userdata",
             "AI Neo data folder",
             Status.FAIL,
-            f"{paths.root} is not writable ({problem})",
+            f"{root} is not writable ({problem})",
             "Set AI_NEO_HOME to a folder you can write to.",
         )
-    return Check("userdata", "AI Neo data folder", Status.OK, str(paths.root))
+    return Check("userdata", "AI Neo data folder", Status.OK, str(root))
 
 
 def check_governor(cfg: Config, env: Mapping[str, str]) -> Check:

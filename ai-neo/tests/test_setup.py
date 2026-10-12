@@ -8,7 +8,7 @@ import pytest
 from ai_neo.config import ConfigError, load_config
 from ai_neo.ollama_client import OllamaClient
 from ai_neo.paths import Paths
-from ai_neo.setup.checks import Status
+from ai_neo.setup.checks import Check, Status
 from ai_neo.setup.doctor import run_doctor
 from ai_neo.setup.state import SetupState
 from ai_neo.setup.steps import STEPS
@@ -17,14 +17,19 @@ from tests.fake_ollama import ChatReply, FakeOllama, PullScript
 from tests.helpers import FakeProbe, ScriptedUI
 
 DEAD = "http://127.0.0.1:9"
+STUB_SELFTEST = lambda cfg: [Check("stub", "stub", Status.OK, "")]  # noqa: E731
 
 
 class Env:
     """Everything one wizard run needs, built on the fake Ollama server."""
 
-    def __init__(self, server: FakeOllama, tmp_path: Path, **flags: object) -> None:
+    def __init__(
+        self, server: FakeOllama, tmp_path: Path, *, fresh_home: bool = False, **flags: object
+    ) -> None:
         self.server = server
         self.paths = Paths(tmp_path / "home")
+        if not fresh_home:
+            self.paths.root.mkdir(parents=True, exist_ok=True)  # as if AI Neo had run before
         self.workspace = tmp_path / "ws"
         self.probe = FakeProbe()
         self.environ: dict[str, str] = {}
@@ -360,7 +365,7 @@ def test_settings_preserve_other_values_and_back_up(
     fake_ollama: FakeOllama, tmp_path: Path
 ) -> None:
     env = Env(fake_ollama, tmp_path)
-    env.paths.root.mkdir(parents=True)
+    env.paths.root.mkdir(parents=True, exist_ok=True)
     env.paths.config.write_text('[ollama]\nbase_url = "http://gpu-box:11434"\n', encoding="utf-8")
     ui = ScriptedUI([str(env.workspace), "", "", "", ""])
     assert env.run(ui, steps=STEPS[5:6]) == 0
@@ -518,7 +523,7 @@ def test_rerunning_everything_is_safe_and_changes_nothing(
 
 def test_corrupt_state_file_is_ignored(fake_ollama: FakeOllama, tmp_path: Path) -> None:
     env = Env(fake_ollama, tmp_path)
-    env.paths.root.mkdir(parents=True)
+    env.paths.root.mkdir(parents=True, exist_ok=True)
     env.paths.state.write_text("{not json", encoding="utf-8")
     ui = ScriptedUI(["", ""])
     assert env.run(ui, steps=STEPS[:2]) == 0
@@ -631,7 +636,7 @@ def test_doctor_warnings_alone_exit_zero(fake_ollama: FakeOllama, tmp_path: Path
 
 def test_doctor_bad_config_fails(fake_ollama: FakeOllama, tmp_path: Path) -> None:
     env = Env(fake_ollama, tmp_path)
-    env.paths.root.mkdir(parents=True)
+    env.paths.root.mkdir(parents=True, exist_ok=True)
     env.paths.config.write_text("[ollama]\nnum_ctx = 5\n", encoding="utf-8")
     with pytest.raises(ConfigError) as info:
         load_config(env.paths.config, {})
@@ -673,3 +678,66 @@ def test_doctor_governor_states(fake_ollama: FakeOllama, tmp_path: Path) -> None
     code, ui = doctor(env)
     assert code == 0 and "[WARN] Claude governor (optional)" in ui.text
     assert "no Claude model name" in ui.text and "TOPSECRET" not in ui.text
+
+
+def test_setup_asks_before_creating_its_data_folder(
+    fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    env = Env(fake_ollama, tmp_path, fresh_home=True)
+    declined = ScriptedUI(["n"])
+    assert env.run(declined, steps=STEPS[:1]) == 1
+    assert not env.paths.root.exists()  # nothing was created
+    assert "AI_NEO_HOME" in declined.text and "Create that folder?" in declined.prompts[0]
+    accepted = ScriptedUI(["y", "y"])  # create the folder, then allow nvidia-smi
+    assert env.run(accepted, steps=STEPS[:1]) == 0
+    assert env.paths.root.is_dir() and env.paths.state.exists()
+    again = ScriptedUI(["y"] * 1)  # second run: no folder question, just the "skip finished step?"
+    assert env.run(again, steps=STEPS[:1]) == 0
+    assert not any("Create that folder?" in p for p in again.prompts)
+
+
+def test_non_interactive_creates_the_data_folder_without_asking(
+    fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    env = Env(fake_ollama, tmp_path, fresh_home=True)
+    ui = ScriptedUI([])
+    assert env.run(ui, steps=STEPS[:1], non_interactive=True) == 0
+    assert env.paths.root.is_dir() and ui.prompts == []
+
+
+def test_doctor_includes_the_real_selftest_and_does_not_create_folders(
+    fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    env = Env(fake_ollama, tmp_path, fresh_home=True)
+    ui = ScriptedUI()
+    code = run_doctor(
+        env.paths, env.environ, ui, env.cfg, probe=env.probe, client_factory=env.factory()
+    )
+    assert code == 0
+    assert "[PASS] Tools and safety self-test: all 12 checks passed" in ui.text
+    assert "will be created when needed" in ui.text
+    assert not env.paths.root.exists()  # looking is not touching
+
+
+def test_doctor_reports_a_failing_selftest(fake_ollama: FakeOllama, tmp_path: Path) -> None:
+    env = Env(fake_ollama, tmp_path)
+    ui = ScriptedUI()
+    failing = lambda cfg: [  # noqa: E731
+        Check("ok", "fine", Status.OK, ""),
+        Check("timeout", "run_python timeout", Status.FAIL, "boom", "Report a bug."),
+    ]
+    code = run_doctor(
+        env.paths,
+        env.environ,
+        ui,
+        env.cfg,
+        probe=env.probe,
+        client_factory=env.factory(),
+        selftest=failing,
+    )
+    assert code == 1
+    assert (
+        "[FAIL] Tools and safety self-test: 1 of 2 checks failed (first: run_python timeout)"
+        in ui.text
+    )
+    assert "fix: Report a bug." in ui.text

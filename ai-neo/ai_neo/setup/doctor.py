@@ -24,10 +24,45 @@ from ai_neo.setup.checks import (
     check_workspace,
 )
 from ai_neo.setup.probe import RealProbe, SystemProbe, ollama_models_dir
+from ai_neo.setup.selftest import run_selftest
 from ai_neo.setup.wizard import default_client_factory
 from ai_neo.ui import UI
 
 LABELS = {Status.OK: "PASS", Status.WARN: "WARN", Status.FAIL: "FAIL", Status.SKIP: "SKIP"}
+
+
+SelfTest = Callable[[Config], list[Check]]
+
+
+def selftest_check(cfg: Config, selftest: SelfTest) -> Check:
+    """One doctor line summarizing the offline self-test of the tools and safety guards."""
+    results = selftest(cfg)
+    failed = [c for c in results if c.status is Status.FAIL]
+    if failed:
+        first = failed[0]
+        return Check(
+            "selftest",
+            "Tools and safety self-test",
+            Status.FAIL,
+            f"{len(failed)} of {len(results)} checks failed (first: {first.label})",
+            first.fix or "Run `ai-neo setup` for details.",
+        )
+    skipped = [c for c in results if c.status is Status.WARN]
+    if skipped:
+        return Check(
+            "selftest",
+            "Tools and safety self-test",
+            Status.WARN,
+            f"{len(results) - len(skipped)} of {len(results)} checks passed; "
+            f"{len(skipped)} skipped ({skipped[0].label})",
+            skipped[0].fix,
+        )
+    return Check(
+        "selftest",
+        "Tools and safety self-test",
+        Status.OK,
+        f"all {len(results)} checks passed (calculator, code timeout, path guard, checkers)",
+    )
 
 
 def collect_checks(
@@ -37,6 +72,7 @@ def collect_checks(
     config_error: ConfigError | None,
     probe: SystemProbe,
     client: OllamaClient,
+    selftest: SelfTest = run_selftest,
 ) -> list[Check]:
     local = is_local_url(cfg.ollama.base_url)
     server, models = check_server(client)
@@ -66,6 +102,7 @@ def collect_checks(
         check_model(models, cfg.ollama.model),
         check_workspace(cfg),
         check_governor(cfg, env),
+        selftest_check(cfg, selftest),
     ]
     return checks
 
@@ -79,10 +116,13 @@ def run_doctor(
     *,
     probe: SystemProbe | None = None,
     client_factory: Callable[[Config], OllamaClient] | None = None,
+    selftest: SelfTest = run_selftest,
 ) -> int:
     ui.heading("AI Neo doctor")
     with (client_factory or default_client_factory)(cfg) as client:
-        checks = collect_checks(paths, env, cfg, config_error, probe or RealProbe(), client)
+        checks = collect_checks(
+            paths, env, cfg, config_error, probe or RealProbe(), client, selftest
+        )
     for check in checks:
         ui.tag(LABELS[check.status], f"{check.label}: {check.detail}")
         if check.fix and check.status in (Status.WARN, Status.FAIL):
