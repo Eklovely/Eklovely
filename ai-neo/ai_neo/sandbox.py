@@ -211,6 +211,26 @@ def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
         proc.kill()
 
 
+_LIVE: set[subprocess.Popen[bytes]] = set()
+_LIVE_LOCK = threading.Lock()
+
+
+def kill_running() -> int:
+    """Kill every sandboxed process that is running right now; returns how many were running.
+
+    Used by the browser's Stop button and when the web server shuts down, so a script that was
+    abandoned does not keep running in the background.
+    """
+    with _LIVE_LOCK:
+        running = list(_LIVE)
+    killed = 0
+    for proc in running:
+        if proc.poll() is None:
+            _kill_tree(proc)
+            killed += 1
+    return killed
+
+
 def run_python_process(
     python_args: list[str],
     *,
@@ -253,6 +273,8 @@ def run_python_process(
         stderr=subprocess.STDOUT,
         **popen_kwargs,  # type: ignore[arg-type]
     )
+    with _LIVE_LOCK:
+        _LIVE.add(proc)
     job = _windows_job(proc.pid, memory_bytes) if os.name == "nt" else None
     capture = _Capture(max_bytes)
     thread = threading.Thread(target=_reader, args=(proc.stdout, capture), daemon=True)
@@ -269,6 +291,8 @@ def run_python_process(
         proc.wait()
         raise
     finally:
+        with _LIVE_LOCK:
+            _LIVE.discard(proc)
         thread.join(timeout=2)
         _close_windows_job(job)
         if proc.stdout:

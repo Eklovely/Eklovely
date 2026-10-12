@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import socket
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -184,15 +187,37 @@ class OllamaClient:
         self.model = model
         self.keep_alive = keep_alive
         self._no_think: set[str] = set()
+        self._cancelled = threading.Event()
+        self._stream: Any = None  # the network stream of the request in flight, for cancel()
         self._http = httpx.Client(
             base_url=self.base_url,
             timeout=httpx.Timeout(timeout, connect=5.0),
             transport=transport,
             trust_env=not is_local_url(self.base_url),
+            # A fresh connection per request, so cancel() always knows which socket to close.
+            limits=httpx.Limits(max_keepalive_connections=0),
         )
 
     def close(self) -> None:
         self._http.close()
+
+    def cancel(self) -> None:
+        """Abort the reply being fetched right now, from any thread (the browser's Stop button).
+
+        Closing the socket also wakes a read that is still waiting for the first token (for
+        example while the model loads), which a flag alone could not. The interrupted `chat`
+        call returns the text received so far with `interrupted=True`, like Ctrl+C does.
+        """
+        self._cancelled.set()
+        stream = self._stream
+        sock = stream.get_extra_info("socket") if stream is not None else None
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
+    def _trace(self, event_name: str, info: dict[str, Any]) -> None:
+        if event_name in ("connection.connect_tcp.complete", "connection.start_tls.complete"):
+            self._stream = info.get("return_value")
 
     def __enter__(self) -> OllamaClient:
         return self
@@ -268,22 +293,52 @@ class OllamaClient:
         tools: list[dict[str, Any]] | None,
         on_event: EventSink | None,
     ) -> ChatResult:
+        self._cancelled.clear()
+        self._stream = None
+        try:
+            return self._chat_stream(messages, sampling, think, tools, on_event)
+        except OllamaError as exc:
+            if not self._cancelled.is_set():
+                raise
+            result = exc.partial or ChatResult()  # the socket was closed on purpose by cancel()
+            result.interrupted = True
+            return result
+        finally:
+            self._stream = None
+
+    def _chat_stream(
+        self,
+        messages: Sequence[Message],
+        sampling: Sampling,
+        think: bool | None,
+        tools: list[dict[str, Any]] | None,
+        on_event: EventSink | None,
+    ) -> ChatResult:
         acc = _Accumulator()
         splitter = ThinkTagSplitter()
         payload = self._payload(messages, sampling, think, tools)
         try:
-            with self._http.stream("POST", "/api/chat", json=payload) as response:
+            with self._http.stream(
+                "POST", "/api/chat", json=payload, extensions={"trace": self._trace}
+            ) as response:
                 if response.status_code != 200:
                     response.read()
                     self._raise_for_status(response.status_code, response.text)
                 for line in response.iter_lines():
                     if not line.strip():
                         continue
-                    chunk = self._parse_line(line)
+                    try:
+                        chunk = self._parse_line(line)
+                    except OllamaError:
+                        if self._cancelled.is_set():
+                            break  # cancel() cut the last line in half
+                        raise
                     self._consume(chunk, acc, splitter, on_event)
                     if chunk.get("done"):
                         break
             self._drain(splitter, acc, on_event)
+            if self._cancelled.is_set() and not acc.saw_done:
+                return acc.result(interrupted=True)
         except KeyboardInterrupt:
             self._drain(splitter, acc, None)
             return acc.result(interrupted=True)

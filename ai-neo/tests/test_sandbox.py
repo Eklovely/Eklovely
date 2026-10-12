@@ -95,3 +95,28 @@ def test_python_args_support_modules(tmp_path: Path) -> None:
         max_bytes=1000,
     )
     assert result.output.strip() == "3" and sys.version_info[0] == 3
+
+
+def test_kill_running_stops_a_script_that_is_in_progress(tmp_path) -> None:
+    import threading
+    import time
+
+    from ai_neo.sandbox import kill_running, run_python_process
+
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    box: list = []
+    thread = threading.Thread(
+        target=lambda: box.append(
+            run_python_process([str(script)], cwd=tmp_path, timeout=30, max_bytes=1000)
+        ),
+        daemon=True,
+    )
+    thread.start()
+    time.sleep(1.0)
+    started = time.monotonic()
+    assert kill_running() == 1
+    thread.join(timeout=10)
+    assert not thread.is_alive() and time.monotonic() - started < 5
+    assert box[0].returncode != 0 and not box[0].timed_out
+    assert kill_running() == 0  # the registry is empty again

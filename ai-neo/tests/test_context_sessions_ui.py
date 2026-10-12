@@ -138,6 +138,18 @@ def test_session_names_cannot_escape_the_directory(tmp_path: Path) -> None:
     assert safe_name("...") == "session"
 
 
+def test_names_keep_other_languages_and_avoid_windows_device_names() -> None:
+    japanese, chinese = "\u65e5\u672c\u8a9e", "\u4e2d\u6587"
+    assert safe_name(japanese) == japanese and safe_name(chinese) == chinese
+    assert safe_name(japanese) != safe_name(chinese)  # they used to collapse into "session"
+    assert safe_name("caf\u00e9 notes") == "caf\u00e9_notes"
+    for device in ("con", "NUL", "com1", "Lpt9", "aux.txt", "PRN"):
+        assert safe_name(device).startswith("_")
+    assert safe_name("console") == "console"  # only the exact reserved names
+    assert safe_name("a\x00b\x1fc\u202ed") == "a_b_c_d"  # control and direction characters go
+    assert safe_name("x" * 200) == "x" * 60
+
+
 def test_markdown_export() -> None:
     session = chat_session(1, 5)
     session.name = "demo"

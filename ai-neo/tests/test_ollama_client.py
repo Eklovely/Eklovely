@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
 from ai_neo.ollama_client import (
@@ -216,3 +219,75 @@ def test_pull_error_line_and_ctrl_c(fake_ollama: FakeOllama) -> None:
 
         with pytest.raises(PullCancelled, match="resumes"):
             client.pull("x:1", cancel)
+
+
+# -- cancel(): the browser's Stop button -----------------------------------------------------------
+
+
+def run_chat_in_thread(client: OllamaClient) -> tuple[list, threading.Thread]:
+    box: list = []
+    thread = threading.Thread(
+        target=lambda: box.append(client.chat(HELLO, sampling=SAMPLING)), daemon=True
+    )
+    thread.start()
+    return box, thread
+
+
+def test_cancel_wakes_a_request_still_waiting_for_the_first_token(fake_ollama: FakeOllama) -> None:
+    release = threading.Event()
+
+    def model_is_loading(payload: dict) -> ChatReply:
+        release.wait(30)  # Ollama sends nothing at all while it loads a model
+        return text("too late")
+
+    fake_ollama.chat_handler = model_is_loading
+    with make_client(fake_ollama) as client:
+        box, thread = run_chat_in_thread(client)
+        time.sleep(0.4)
+        started = time.monotonic()
+        client.cancel()
+        thread.join(timeout=5)
+        release.set()
+        assert not thread.is_alive() and time.monotonic() - started < 3
+        assert box[0].interrupted and box[0].content == ""
+
+
+def test_cancel_in_the_middle_of_a_reply_keeps_what_arrived(fake_ollama: FakeOllama) -> None:
+    fake_ollama.queue(ChatReply(content=[f"w{i} " for i in range(100)], delay=0.03))
+    with make_client(fake_ollama) as client:
+        box, thread = run_chat_in_thread(client)
+        time.sleep(0.4)
+        client.cancel()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        result = box[0]
+        assert result.interrupted
+        assert result.content.startswith("w0 ") and len(result.content) < 100 * 4
+
+
+def test_a_cancel_does_not_poison_the_next_request(fake_ollama: FakeOllama) -> None:
+    fake_ollama.queue(ChatReply(content=["a "] * 50, delay=0.03), text("second answer"))
+    with make_client(fake_ollama) as client:
+        box, thread = run_chat_in_thread(client)
+        time.sleep(0.3)
+        client.cancel()
+        thread.join(timeout=5)
+        assert box[0].interrupted
+        again = client.chat(HELLO, sampling=SAMPLING)
+        assert again.content == "second answer" and not again.interrupted
+
+
+def test_cancel_with_nothing_running_is_harmless(fake_ollama: FakeOllama) -> None:
+    fake_ollama.queue(text("fine"))
+    with make_client(fake_ollama) as client:
+        client.cancel()
+        assert client.chat(HELLO, sampling=SAMPLING).content == "fine"
+
+
+def test_a_real_connection_failure_is_still_an_error_not_an_interruption(
+    fake_ollama: FakeOllama,
+) -> None:
+    fake_ollama.stop()
+    with make_client(fake_ollama) as client, pytest.raises(OllamaUnavailable):
+        client.chat(HELLO, sampling=SAMPLING)
+    fake_ollama.start = lambda: None  # the fixture's stop() runs again at teardown

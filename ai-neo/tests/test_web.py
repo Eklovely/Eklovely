@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import struct
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -16,8 +18,16 @@ import pytest
 import ai_neo.web.server as server_module
 from ai_neo.cli import EXIT_USAGE, build_parser, load_app, main
 from ai_neo.types import GenStats, StreamEvent
-from ai_neo.web.server import WebApp, load_template, make_server, serve
-from ai_neo.web.webui import StopRequested, WebUI, clip, options_from_prompt
+from ai_neo.web.server import LaunchCode, WebApp, load_template, make_server, serve
+from ai_neo.web.webui import (
+    CUT_WARNING,
+    MAX_PREVIEW_CHARS,
+    StopRequested,
+    WebUI,
+    clip,
+    options_from_prompt,
+    visible_controls,
+)
 from tests.fake_ollama import ChatReply, FakeOllama, code_reply, text, tool_call
 from tests.helpers import ScriptedUI
 
@@ -44,10 +54,11 @@ def make_web(
 class WebClient:
     """A real HTTP client talking to a real `make_server` on a free loopback port."""
 
-    def __init__(self, web: WebApp, token: str = TOKEN) -> None:
+    def __init__(self, web: WebApp, token: str = TOKEN, code_ttl: float = 120.0) -> None:
         self.web = web
         self.token = token
-        self.server = make_server(web, token, "127.0.0.1", 0)
+        self.launch = LaunchCode(code_ttl)
+        self.server = make_server(web, token, "127.0.0.1", 0, self.launch)
         threading.Thread(
             target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
         ).start()
@@ -168,6 +179,8 @@ def test_page_needs_the_token_and_gets_a_strict_policy(client: WebClient) -> Non
     nonce = policy.split("script-src 'nonce-")[1].split("'")[0]
     assert f'<script nonce="{nonce}">' in page.text and f'<style nonce="{nonce}">' in page.text
     assert "default-src 'none'" in policy and "connect-src 'self'" in policy
+    assert "img-src 'none'" in policy and "frame-ancestors 'none'" in policy
+    assert page.headers["x-frame-options"] == "DENY"
     assert "'unsafe-inline'" not in policy and "unsafe-eval" not in policy
     assert page.headers["referrer-policy"] == "no-referrer"
     assert page.headers["cache-control"] == "no-store"
@@ -539,10 +552,8 @@ def test_build_mode_asks_you_to_approve_the_plan(
     assert last["build"]["files"] == 0 and last["build"]["passed"] is False
 
 
-def test_the_governor_asks_before_sending_anything(
-    client: WebClient, fake_ollama: FakeOllama, tmp_path: Path
-) -> None:
-    web = client.web
+def arm_governor(web: WebApp) -> list[dict[str, Any]]:
+    """Make the governor available with a fake Claude; returns what 'Anthropic' received."""
     sent: list[dict[str, Any]] = []
 
     def create(**kwargs: Any) -> Any:
@@ -558,6 +569,39 @@ def test_the_governor_asks_before_sending_anything(
     gov.cfg = type(gov.cfg)(**{**gov.cfg.__dict__, "claude_model": "some-claude-model"})
     gov.env = {"ANTHROPIC_API_KEY": "sk-not-a-real-key"}
     gov._client_factory = lambda: SimpleNamespace(messages=SimpleNamespace(create=create))
+    return sent
+
+
+def test_the_governor_asks_again_after_new_chat_load_and_toggling(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    sent = arm_governor(client.web)
+    client.settings(govern=True)
+    fake_ollama.queue(*[text("ok")] * 8)
+    first = client.chat("one", answers={"confirm": "y"})
+    assert len(of(first, "prompt")) == 1 and len(sent) == 1
+    again = client.chat("two")  # same chat: the approval still stands
+    assert of(again, "prompt") == [] and len(sent) == 2
+
+    client.post("/api/new")
+    renewed = client.chat("three", answers={"confirm": "y"})
+    assert len(of(renewed, "prompt")) == 1 and len(sent) == 3  # a new chat asks again
+
+    client.post("/api/save", {"name": "keep"})
+    client.post("/api/load", {"name": "keep"})
+    loaded = client.chat("four", answers={"confirm": "y"})
+    assert len(of(loaded, "prompt")) == 1 and len(sent) == 4  # so does loading another chat
+
+    client.settings(govern=False)
+    client.settings(govern=True)
+    toggled = client.chat("five", answers={"confirm": "y"})
+    assert len(of(toggled, "prompt")) == 1 and len(sent) == 5  # and so does turning it off and on
+
+
+def test_the_governor_asks_before_sending_anything(
+    client: WebClient, fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    sent = arm_governor(client.web)
     assert client.settings(govern=True).json() == {"warnings": []}
 
     fake_ollama.queue(text("143"), text("144"))
@@ -635,7 +679,7 @@ def test_stop_ends_the_reply_and_keeps_the_partial_text(
     assert not thread.is_alive()
     last = done(events)
     assert last["interrupted"] is True
-    assert last["answer"].startswith("w0 ") and len(last["answer"]) < 60 * 4
+    assert last["answer"].startswith("w0") and len(last["answer"]) < 60 * 4
     wait_idle(client.web)
     # the server is usable again and the partial answer is part of the conversation
     again = done(client.chat("next"))
@@ -782,24 +826,139 @@ def test_questions_block_until_the_browser_answers() -> None:
     assert ui.pending_ids() == []
 
 
-def test_answers_are_validated() -> None:
+def wait_for_event(events: list[dict[str, Any]], timeout: float = 5.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    while not events:
+        assert time.monotonic() < deadline, "no event arrived"
+        time.sleep(0.01)
+    return events.pop(0)
+
+
+def test_only_offered_answers_are_accepted_and_the_question_keeps_waiting() -> None:
+    """A typo or stray request must never approve anything through a default."""
     ui = WebUI()
     events = collect(ui)
+    results: list[str] = []
+    thread = threading.Thread(
+        target=lambda: results.append(ui.choose("Approve? [Y]es / [N]o:", "yn", default="y")),
+        daemon=True,
+    )
+    thread.start()
+    prompt = wait_for_event(events)
+    for bad in ("zzz", "", " ", "nope", "yes", "ny", "approve"):
+        with pytest.raises(ValueError):
+            ui.respond(prompt["id"], bad)
+    assert ui.pending_ids() == [prompt["id"]]  # still waiting, nothing was decided
+    assert results == []
+    assert ui.respond(prompt["id"], " N ") is True  # case and spaces are fine
+    thread.join(timeout=5)
+    assert results == ["n"]
 
-    def reply(value: str) -> None:
-        deadline = time.monotonic() + 5
-        while not events:
-            assert time.monotonic() < deadline
+
+def test_yes_no_questions_accept_only_yes_or_no() -> None:
+    ui = WebUI()
+    events = collect(ui)
+    results: list[bool] = []
+    thread = threading.Thread(
+        target=lambda: results.append(ui.confirm("Allow this?", default=False)), daemon=True
+    )
+    thread.start()
+    prompt = wait_for_event(events)
+    with pytest.raises(ValueError):
+        ui.respond(prompt["id"], "maybe")
+    assert ui.respond(prompt["id"], "YES") is True
+    thread.join(timeout=5)
+    assert results == [True]
+
+
+def test_free_text_questions_take_any_answer_and_fall_back_to_the_default() -> None:
+    ui = WebUI()
+    events = collect(ui)
+    results: list[str] = []
+
+    def ask(default: str | None) -> None:
+        results.append(ui.ask("Name?", default=default))
+
+    for answer, default, expected in (("  Neo  ", None, "Neo"), ("   ", "fallback", "fallback")):
+        thread = threading.Thread(target=ask, args=(default,), daemon=True)
+        thread.start()
+        prompt = wait_for_event(events)
+        assert ui.respond(prompt["id"], answer) is True
+        thread.join(timeout=5)
+        assert results[-1] == expected
+
+
+def test_question_ids_cannot_be_guessed() -> None:
+    ui = WebUI()
+    events = collect(ui)
+    ids = []
+    for _ in range(3):
+        thread = threading.Thread(target=lambda: ui.confirm("Allow?", default=False), daemon=True)
+        thread.start()
+        prompt = wait_for_event(events)
+        ids.append(prompt["id"])
+        ui.respond(prompt["id"], "n")
+        thread.join(timeout=5)
+    assert len(set(ids)) == 3 and all(len(i) >= 10 for i in ids)
+    assert not any(i[1:].isdigit() for i in ids)  # not p1, p2, p3 ...
+
+
+def test_a_question_nobody_answers_times_out_and_runs_nothing() -> None:
+    ui = WebUI(prompt_timeout=0.3)
+    events = collect(ui)
+    with pytest.raises(StopRequested):
+        ui.confirm("Allow this?", default=True)  # even a default of yes is not used
+    warning = [e for e in events if e["type"] == "tag"][0]
+    assert warning["status"] == "WARN" and "No answer" in warning["text"]
+    assert ui.pending_ids() == []
+
+
+def test_hidden_and_reversing_characters_become_visible() -> None:
+    rlo, esc = chr(0x202E), chr(0x1B)
+    assert visible_controls(f"a{rlo}b{esc}[31m\r\nc\td") == "a<U+202E>b<U+001B>[31m\nc\td"
+    plain = "plain text, \u65e5\u672c\u8a9e and tabs\n\tare fine"
+    assert visible_controls(plain) == plain
+
+
+def test_approval_previews_show_hidden_characters() -> None:
+    ui = WebUI()
+    events = collect(ui)
+    code = f'x = "{chr(0x202E)}"; import os; os.system("echo hi")  # harmless'
+    ui.preview("The model wants to use: run_python", code)
+    body = events[-1]["body"]
+    assert chr(0x202E) not in body and "<U+202E>" in body
+
+
+def test_previews_are_not_cut_and_a_cut_preview_warns_on_the_question() -> None:
+    from ai_neo.governor import GOVERNOR_SYSTEM, build_payload
+
+    ui = WebUI()
+    events = collect(ui)
+    # the biggest thing the governor can ever send must fit, so "exactly this" is true
+    worst = build_payload("reasoning", "p" * 50_000, "d" * 50_000, ["t" * 50_000] * 10)
+    assert len(worst) + len(GOVERNOR_SYSTEM) + 500 < MAX_PREVIEW_CHARS
+    ui.preview("The governor will send exactly this", worst)
+    assert events[-1]["body"] == worst
+
+    def ask_and_get_prompt() -> dict[str, Any]:
+        thread = threading.Thread(
+            target=lambda: ui.confirm("Allow this?", default=False), daemon=True
+        )
+        thread.start()
+        while not any(e["type"] == "prompt" for e in events):
             time.sleep(0.01)
-        ui.respond(events.pop(0)["id"], value)
+        prompt = [e for e in events if e["type"] == "prompt"][-1]
+        ui.respond(prompt["id"], "n")
+        thread.join(timeout=5)
+        events.clear()
+        return prompt
 
-    for value, expected in (("zzz", "y"), ("N", "n"), ("", "y"), ("nope", "n")):
-        threading.Thread(target=reply, args=(value,), daemon=True).start()
-        assert ui.choose("Approve? [Y]es / [N]o:", "yn", default="y") == expected
-    threading.Thread(target=reply, args=("maybe",), daemon=True).start()
-    assert ui.confirm("Allow this?", default=True) is False  # anything but yes is a no
-    threading.Thread(target=reply, args=("   ",), daemon=True).start()
-    assert ui.ask("Name?", default="neo") == "neo"
+    ui.preview("The model wants to use: run_python", "print(1)\n... (61 more lines)")
+    assert ask_and_get_prompt()["text"] == "Allow this?" + CUT_WARNING
+    ui.preview("The model wants to use: run_python", "print(1)")
+    assert ask_and_get_prompt()["text"] == "Allow this?"  # a complete preview: no warning
+    ui.preview("Big", "x" * (MAX_PREVIEW_CHARS + 10))
+    assert ask_and_get_prompt()["text"] == "Allow this?" + CUT_WARNING  # clipped by us
 
 
 def test_stop_releases_a_waiting_question_with_stoprequested() -> None:
@@ -859,7 +1018,7 @@ def test_output_events_are_plain_json_with_bounded_size() -> None:
     ui.table(["a", "b"], [["1", "2"]], title="T")
     ui.tool_call("run_python", {"code": "x" * 5000})
     ui.tool_result(False, "y" * 50_000)
-    ui.preview("Big", "z" * 50_000)
+    ui.preview("Big", "z" * 100_000)
     ui.stats_line(GenStats(eval_count=10, eval_duration_ns=1_000_000_000), "context 5%")
     progress = ui.progress("Download")
     progress.update(50, 100)
@@ -873,7 +1032,7 @@ def test_output_events_are_plain_json_with_bounded_size() -> None:
     json.dumps(events)  # everything must be serialisable
     assert len(events[4]["args"]) <= 400
     assert len(events[5]["output"]) < 6200 and "more characters" in events[5]["output"]
-    assert len(events[6]["body"]) < 12_200
+    assert len(events[6]["body"]) < MAX_PREVIEW_CHARS + 200
     assert "10.0 tok/s" in events[7]["text"] and "context 5%" in events[7]["text"]
     assert events[8]["percent"] == 50 and events[9]["percent"] == 100
 
@@ -946,3 +1105,504 @@ def test_serve_prints_the_link_and_stops_on_ctrl_c(
     output = ui.text
     assert "http://127.0.0.1:" in output and "?token=" in output
     assert "Only this computer can connect" in output
+
+
+# -- review fixes: answers, stop, lifetime, robustness --------------------------------------------
+
+
+def raw_http(port: int, request: bytes, timeout: float = 5.0) -> bytes:
+    """Send hand-written bytes and return whatever comes back (for malformed-request tests)."""
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as sock:
+        sock.sendall(request)
+        chunks = []
+        try:
+            while True:
+                data = sock.recv(65536)
+                if not data:
+                    break
+                chunks.append(data)
+        except TimeoutError:
+            pass
+        return b"".join(chunks)
+
+
+def api_request(client: WebClient, extra_headers: str, body: bytes = b"{}") -> bytes:
+    head = (
+        f"POST /api/settings HTTP/1.1\r\nHost: 127.0.0.1:{client.port}\r\n"
+        f"X-AI-Neo-Token: {client.token}\r\nContent-Type: application/json\r\n{extra_headers}\r\n"
+    )
+    return raw_http(client.port, head.encode() + body)
+
+
+def test_an_invalid_answer_to_the_plan_question_is_refused(
+    client: WebClient, fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    client.settings(mode="build")
+    plan = "Here is the plan:\n```json\n" + json.dumps(PLAN) + "\n```"
+    fake_ollama.queue(text(plan))
+    events, thread = stream_in_background(client, "Build a calculator")
+    wait_for(events, "prompt")
+    prompt = of(events, "prompt")[0]
+    for bad in ("approve please", "x", "", "stop"):
+        refused = client.post("/api/respond", {"id": prompt["id"], "value": bad})
+        assert refused.status_code == 400 and "offered answer" in refused.json()["error"]
+    assert client.web.ui.pending_ids() == [prompt["id"]]  # nothing was approved
+    assert not (tmp_path / "ws" / "calc-tool").exists()
+    assert client.post("/api/respond", {"id": prompt["id"], "value": "n"}).json() == {"ok": True}
+    thread.join(timeout=15)
+    assert "cancelled" in done(events)["answer"].lower()
+
+
+def test_stop_works_while_the_model_is_still_loading(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    """Ollama sends nothing while it loads a model; Stop must not wait for the first word."""
+    release = threading.Event()
+
+    def slow_start(payload: dict[str, Any]) -> ChatReply:
+        release.wait(30)
+        return text("far too late")
+
+    fake_ollama.chat_handler = slow_start
+    events, thread = stream_in_background(client, "hello")
+    wait_for(events, "segment")
+    time.sleep(0.5)  # the request is now waiting for the response headers
+    started = time.monotonic()
+    client.post("/api/stop")
+    thread.join(timeout=6)
+    release.set()
+    assert not thread.is_alive() and time.monotonic() - started < 5
+    last = done(events)
+    assert last["interrupted"] is True and last["error"] is None
+    wait_idle(client.web)
+    fake_ollama.chat_handler = None
+    fake_ollama.queue(text("fine again"))
+    assert done(client.chat("next"))["answer"] == "fine again"  # the client works after a cancel
+
+
+def test_a_reset_connection_during_a_question_frees_the_server(
+    client: WebClient, fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    client.settings(mode="compute")
+    marker = tmp_path / "must-not-run.txt"
+    code = f"open({str(marker)!r}, 'w').write('x')"
+    fake_ollama.queue(tool_call("run_python", {"code": code}), text("never"))
+    body = json.dumps({"prompt": "write a file"}).encode()
+    request = (
+        f"POST /api/chat HTTP/1.1\r\nHost: 127.0.0.1:{client.port}\r\n"
+        f"X-AI-Neo-Token: {client.token}\r\nContent-Type: application/json\r\n"
+        f"Content-Length: {len(body)}\r\n\r\n"
+    ).encode() + body
+    sock = socket.create_connection(("127.0.0.1", client.port), timeout=10)
+    sock.sendall(request)
+    seen = b""
+    while b'"prompt"' not in seen:  # wait until the approval question is on screen
+        seen += sock.recv(65536)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    sock.close()  # a reset, like a crashed tab
+    wait_idle(client.web, timeout=15)
+    assert not marker.exists()
+
+
+def test_the_page_can_stop_a_reply_it_did_not_start(client: WebClient) -> None:
+    """A reloaded page sees 'busy' with no stream to stop; /api/stop must still work."""
+    assert client.post("/api/stop").json() == {"ok": True}  # harmless when idle
+    html = load_template()
+    assert "st.busy && !S.busy" in html or "remoteBusy" in html
+
+
+def test_stalled_connections_are_dropped(
+    make_client: Callable[..., WebClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "SOCKET_TIMEOUT", 0.5)
+    client = make_client()
+    with socket.create_connection(("127.0.0.1", client.port), timeout=10) as sock:
+        sock.sendall(b"GET /api/sta")  # a request line that never finishes
+        started = time.monotonic()
+        assert sock.recv(1) == b""  # the server closed it
+        assert time.monotonic() - started < 5
+
+
+def test_too_many_connections_are_refused_and_slots_come_back(
+    make_client: Callable[..., WebClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module._Server, "max_connections", 3)
+    client = make_client()
+    held = [socket.create_connection(("127.0.0.1", client.port), timeout=10) for _ in range(3)]
+    try:
+        time.sleep(0.3)  # let the server pick all three up
+        extra = socket.create_connection(("127.0.0.1", client.port), timeout=10)
+        extra.settimeout(5)
+        assert extra.recv(1) == b""  # refused straight away
+        extra.close()
+    finally:
+        for sock in held:
+            sock.close()
+    deadline = time.monotonic() + 10
+    while True:  # the slots are released once the held connections are gone
+        try:
+            if client.get("/api/state").status_code == 200:
+                break
+        except httpx.HTTPError:
+            pass
+        assert time.monotonic() < deadline
+        time.sleep(0.1)
+
+
+def test_odd_request_framing_is_rejected_cleanly(client: WebClient) -> None:
+    chunked = client.http.post(
+        "/api/settings",
+        content=iter([b"{}"]),  # an iterator is sent with Transfer-Encoding: chunked
+        headers=client.headers({"Content-Type": "application/json"}),
+    )
+    assert chunked.status_code == 411
+    assert api_request(client, "Content-Length: +2\r\n", b"{}").startswith(b"HTTP/1.0 400")
+    assert api_request(client, "Content-Length: 1_0\r\n", b"{}").startswith(b"HTTP/1.0 400")
+    deep = b"[" * 100_000 + b"]" * 100_000
+    nested = client.http.post(
+        "/api/settings", content=deep, headers=client.headers({"Content-Type": "application/json"})
+    )
+    assert nested.status_code == 400  # not a 500 from RecursionError
+
+
+def test_unexpected_errors_are_logged_for_the_operator_not_the_page(
+    client: WebClient, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom() -> dict:
+        raise RuntimeError("kaboom detail")
+
+    monkeypatch.setattr(client.web, "state", boom)
+    response = client.get("/api/state")
+    assert response.status_code == 500 and "kaboom" not in response.text
+    assert "kaboom detail" in capsys.readouterr().err  # but the terminal running it shows why
+
+
+# -- launch code and cookie (the long-lived token stays out of the browser's command line) ---------
+
+
+def test_a_launch_code_opens_the_page_and_leaves_a_cookie(client: WebClient) -> None:
+    page = client.http.get("/", params={"code": client.launch.value})
+    assert page.status_code == 200 and TOKEN in page.text
+    cookie = page.headers["set-cookie"]
+    assert cookie.startswith(f"ai_neo_{client.port}={TOKEN};")
+    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    # the page can now drop the secret from the address bar and still reload
+    reloaded = client.http.get("/")
+    assert reloaded.status_code == 200 and TOKEN in reloaded.text
+
+
+def test_the_page_needs_a_token_a_live_code_or_the_cookie(
+    make_client: Callable[..., WebClient],
+) -> None:
+    client = make_client()
+    assert client.http.get("/").status_code == 403  # nothing
+    assert client.http.get("/", params={"code": "wrong"}).status_code == 403
+    assert (
+        client.http.get("/", headers={"Cookie": f"ai_neo_{client.port}=wrong"}).status_code == 403
+    )
+    assert client.http.get("/", headers={"Cookie": "garbage; ;"}).status_code == 403
+    assert client.http.get("/", params={"token": TOKEN}).status_code == 200
+
+
+def test_a_launch_code_expires() -> None:
+    short = LaunchCode(ttl=0.2)
+    assert short.valid(short.value) is True
+    assert short.valid("nope") is False
+    time.sleep(0.3)
+    assert short.valid(short.value) is False
+
+
+def test_the_page_script_drops_the_secret_from_the_address_bar() -> None:
+    assert "history.replaceState" in load_template()
+
+
+# -- saving chats --------------------------------------------------------------------------------
+
+
+def test_saving_over_a_different_chat_asks_first(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    fake_ollama.queue(text("one"), text("two"))
+    client.chat("first chat")
+    assert client.post("/api/save", {"name": "trip"}).json() == {"name": "trip"}
+    assert client.post("/api/save", {"name": "trip"}).status_code == 200  # same chat: an update
+    client.post("/api/new")
+    client.chat("a different chat")
+    refused = client.post("/api/save", {"name": "trip"})
+    assert refused.status_code == 409 and refused.json()["code"] == "exists"
+    assert client.post("/api/save", {"name": "trip", "overwrite": "yes"}).status_code == 400
+    assert client.post("/api/save", {"name": "trip", "overwrite": True}).status_code == 200
+    client.post("/api/load", {"name": "trip"})
+    assert [m["content"] for m in client.state()["messages"]][:1] == ["a different chat"]
+
+
+def test_non_english_names_stay_different_and_windows_device_names_are_safe(
+    client: WebClient,
+) -> None:
+    japanese, chinese = "\u65e5\u672c\u8a9e", "\u4e2d\u6587"
+    assert client.post("/api/save", {"name": japanese}).json() == {"name": japanese}
+    client.post("/api/new")
+    assert client.post("/api/save", {"name": chinese}).json() == {"name": chinese}
+    names = {s["name"] for s in client.get("/api/sessions").json()["sessions"]}
+    assert {japanese, chinese} <= names
+    assert client.post("/api/save", {"name": "con", "overwrite": True}).json() == {"name": "_con"}
+    assert client.post("/api/save", {"name": "NUL", "overwrite": True}).json() == {"name": "_NUL"}
+    assert (
+        client.post("/api/save", {"name": "../../etc/passwd", "overwrite": True}).json()["name"]
+        == "etc_passwd"
+    )
+
+
+# -- second round of review fixes ---------------------------------------------------------------------
+
+
+def test_stop_kills_a_script_that_is_running(client: WebClient, fake_ollama: FakeOllama) -> None:
+    client.settings(mode="compute", auto_approve=True)
+    code = "import time\nprint('started', flush=True)\ntime.sleep(60)"
+    fake_ollama.queue(tool_call("run_python", {"code": code}), text("never reached"))
+    events, thread = stream_in_background(client, "run a long script")
+    wait_for(events, "tool_call")
+    time.sleep(1.0)  # the script is running now
+    started = time.monotonic()
+    client.post("/api/stop")
+    thread.join(timeout=15)
+    assert not thread.is_alive()
+    assert time.monotonic() - started < 8  # without the kill it would run to the 20 s timeout
+    assert done(events)["interrupted"] is True
+    wait_idle(client.web)
+
+
+def test_nothing_is_sent_to_anthropic_after_stop(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    sent = arm_governor(client.web)
+    client.settings(govern=True)
+    fake_ollama.queue(text("143"))
+    client.chat("What is 12*12?", answers={"confirm": "y"})  # consent is now given
+    assert len(sent) == 1
+    client.settings(mode="code")
+    slow = "import time\ntime.sleep(60)\nassert True\n"
+    fake_ollama.queue(code_reply(slow), code_reply("print('repair')\nassert True\n"))
+    events, thread = stream_in_background(client, "write a slow script")
+    wait_for(events, "segment_end")
+    time.sleep(1.0)  # the generated program is running under run-and-repair
+    client.post("/api/stop")
+    thread.join(timeout=20)
+    assert not thread.is_alive()
+    assert done(events)["interrupted"] is True
+    assert len(sent) == 1  # no second call went out after Stop
+    assert done(events)["governor"] is None
+
+
+def test_a_late_stop_cannot_cancel_a_newer_reply(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    web = client.web
+    fake_ollama.queue(text("quick"))
+    first = web.start_job("one")
+    assert first is not None
+    while first.next(5) is not None:  # drain until the job is over
+        pass
+    wait_idle(web)
+    fake_ollama.queue(slow_reply(words=80, delay=0.05))
+    second = web.start_job("two")
+    assert second is not None
+    web.stop(first)  # a stale Stop aimed at the first job
+    time.sleep(0.6)
+    assert not second.stopped.is_set() and web.busy  # the second reply is untouched
+    web.stop(second)
+    assert second.stopped.is_set()
+    while second.next(10) is not None:
+        pass
+    wait_idle(web)
+
+
+def test_a_stop_that_arrives_before_the_job_attaches_is_not_lost() -> None:
+    ui = WebUI()
+    flag = threading.Event()
+    flag.set()  # Stop was pressed between the job being created and its thread starting
+    ui.attach([].append, flag)
+    assert ui.stop_requested is True
+    with pytest.raises(StopRequested):
+        ui.tool_call("calculator", {})
+    ui.detach()
+    ui.attach([].append)  # the next job has its own, clear flag
+    assert ui.stop_requested is False
+
+
+def test_wake_releases_a_question_whose_job_was_stopped() -> None:
+    ui = WebUI()
+    events = collect(ui)
+    flag = threading.Event()
+    ui.attach(events.append, flag)
+    outcome: list[BaseException] = []
+
+    def ask() -> None:
+        try:
+            ui.confirm("Allow this?", default=False)
+        except KeyboardInterrupt as exc:
+            outcome.append(exc)
+
+    thread = threading.Thread(target=ask, daemon=True)
+    thread.start()
+    wait_for_event(events)
+    flag.set()
+    ui.wake()
+    thread.join(timeout=5)
+    assert len(outcome) == 1 and isinstance(outcome[0], StopRequested)
+
+
+def test_two_windows_cannot_both_win_an_answer() -> None:
+    ui = WebUI()
+    events = collect(ui)
+    for _ in range(100):
+        thread = threading.Thread(target=lambda: ui.confirm("Allow?", default=False), daemon=True)
+        thread.start()
+        prompt = wait_for_event(events)
+        barrier = threading.Barrier(2)
+        results: list[bool] = []
+
+        def answer(
+            value: str,
+            prompt_id: str = prompt["id"],
+            out: list[bool] = results,
+            gate: threading.Barrier = barrier,
+        ) -> None:
+            gate.wait()
+            out.append(ui.respond(prompt_id, value))
+
+        racers = [threading.Thread(target=answer, args=(v,)) for v in ("y", "n")]
+        for racer in racers:
+            racer.start()
+        for racer in racers:
+            racer.join(timeout=5)
+        thread.join(timeout=5)
+        assert sorted(results) == [False, True]  # exactly one answer was accepted
+
+
+def test_a_change_in_progress_blocks_a_reply_from_starting(client: WebClient) -> None:
+    web = client.web
+    with web._mutation():
+        assert web.start_job("hello") is None
+        assert client.post("/api/chat", {"prompt": "hello"}).status_code == 409
+        assert client.settings(mode="write").status_code == 409
+    assert client.settings(mode="write").status_code == 200
+
+
+def test_saving_twice_at_once_never_fails_with_a_server_error(client: WebClient) -> None:
+    results: list[int] = []
+
+    def save() -> None:
+        results.append(client.post("/api/save", {"name": "dup", "overwrite": True}).status_code)
+
+    threads = [threading.Thread(target=save) for _ in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+    assert 500 not in results and 200 in results and set(results) <= {200, 409}
+    loaded = client.post("/api/load", {"name": "dup"})
+    assert loaded.status_code == 200  # the file on disk is intact
+
+
+def test_saving_is_refused_while_a_reply_is_running(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    fake_ollama.queue(slow_reply())
+    events, thread = stream_in_background(client, "slow")
+    wait_for(events, "answer")
+    assert client.post("/api/save", {"name": "half"}).status_code == 409  # no half-finished turn
+    client.post("/api/stop")
+    thread.join(timeout=15)
+    wait_idle(client.web)
+
+
+@pytest.mark.parametrize("patch", [{"mode": []}, {"mode": {"a": 1}}, {"think": []}, {"think": {}}])
+def test_wrongly_typed_choices_are_a_400_not_a_500(client: WebClient, patch: dict) -> None:
+    assert client.post("/api/settings", patch).status_code == 400
+
+
+def test_internal_prompts_are_not_shown_as_things_you_typed(
+    client: WebClient, fake_ollama: FakeOllama
+) -> None:
+    client.settings(mode="code")
+    fake_ollama.queue(
+        code_reply("def add(a, b):\n    return a - b\n\nassert add(2, 3) == 5\n"),
+        code_reply("def add(a, b):\n    return a + b\n\nassert add(2, 3) == 5\n"),
+    )
+    client.chat("Write add(a, b)")
+    shown = client.state()["messages"]
+    assert [m["role"] for m in shown] == ["user", "assistant", "assistant"]
+    assert shown[0]["content"] == "Write add(a, b)"
+    assert not any("Your code failed" in m["content"] for m in shown)
+    # ...but the model did get the repair feedback
+    roles_to_model = [m["role"] for m in fake_ollama.chat_payloads()[-1]["messages"]]
+    assert roles_to_model.count("user") == 2
+
+
+def test_ports_outside_the_valid_range_are_refused(
+    fake_ollama: FakeOllama, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["web", "--port", "70000", "--no-browser", "--plain", "--base-url", fake_ollama.url]
+    assert main(argv) == EXIT_USAGE
+    assert "--port must be between 0 and 65535" in capsys.readouterr().out
+    web = make_web(fake_ollama, tmp_path)
+    with pytest.raises(OSError):  # a clean error, not an OverflowError
+        make_server(web, TOKEN, "127.0.0.1", 70000)
+    web.close()
+
+
+def test_the_log_records_the_model_that_was_really_used(
+    client: WebClient, fake_ollama: FakeOllama, tmp_path: Path
+) -> None:
+    fake_ollama.models.append("llama3:8b")
+    assert client.settings(model="llama3:8b").status_code == 200
+    fake_ollama.queue(text("hi"))
+    client.chat("hello")
+    logs = sorted((tmp_path / "home" / "logs").glob("*.jsonl"))
+    record = json.loads(logs[-1].read_text(encoding="utf-8").splitlines()[-1])
+    assert record["model"] == "llama3:8b"
+
+
+def test_closing_the_app_leaves_nothing_running(client: WebClient, fake_ollama: FakeOllama) -> None:
+    from ai_neo.sandbox import kill_running
+
+    client.settings(mode="compute", auto_approve=True)
+    code = "import time\ntime.sleep(120)"
+    fake_ollama.queue(tool_call("run_python", {"code": code}), text("never"))
+    events, thread = stream_in_background(client, "sleep a long time")
+    wait_for(events, "tool_call")
+    time.sleep(1.0)
+    client.web.close()  # what Ctrl+C on the server does
+    thread.join(timeout=15)
+    assert not thread.is_alive()
+    assert kill_running() == 0  # nothing is still alive
+
+
+def test_the_page_never_puts_focus_on_an_answer_button() -> None:
+    page = load_template()
+    assert "card.focus(" in page and "first.focus(" not in page
+    assert "b.disabled = true" in page  # a short lock-out against a stray key press
+    assert "aria-labelledby" in page and "aria-disabled" in page
+
+
+def test_the_web_command_does_not_start_the_terminal_wizard(
+    fake_ollama: FakeOllama, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_neo.cli import cmd_web
+
+    argv = [
+        "web",
+        "--base-url",
+        fake_ollama.url,
+        "--workspace",
+        str(tmp_path / "ws"),
+        "--no-browser",
+    ]
+    args = build_parser().parse_args(argv)
+    ui = ScriptedUI([])  # any question would raise EOFError
+    app = load_app(args, {"AI_NEO_HOME": str(tmp_path / "home")}, ui)
+    assert not app.paths.config.exists()
+    monkeypatch.setattr("ai_neo.web.server.serve", lambda *a, **k: 0)
+    assert cmd_web(app) == 0
+    assert ui.prompts == [] and "No settings file yet" in ui.text

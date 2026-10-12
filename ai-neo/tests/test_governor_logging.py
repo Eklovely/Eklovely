@@ -146,6 +146,24 @@ def test_declining_turns_the_governor_off_and_sends_nothing() -> None:
     assert fake.calls == [] and not gov.enabled and not result.used
 
 
+def test_reset_consent_makes_it_ask_again() -> None:
+    gov, fake, ui = make_governor([CRITIQUE_HIGH, CRITIQUE_HIGH], answers=["y", "y"])
+    assert gov.enable() is None
+    run_govern(gov)
+    assert len(ui.prompts) == 1
+    gov.reset_consent()
+    run_govern(gov)
+    assert len(ui.prompts) == 2 and len(fake.calls) == 2  # asked again, and sent only after "y"
+
+
+def test_nothing_is_sent_once_stop_was_pressed() -> None:
+    gov, fake, ui = make_governor([CRITIQUE_HIGH], answers=["y"])
+    assert gov.enable() is None
+    ui.stop_requested = True  # the browser's Stop button
+    assert gov.review("computation", "What is 12*12?", "144") is None
+    assert fake.calls == [] and ui.prompts == []  # no question, no call
+
+
 def test_consent_is_asked_only_once_per_session() -> None:
     gov, fake, ui = make_governor([CRITIQUE_LOW, CRITIQUE_HIGH], answers=["y"])
     gov.enable()

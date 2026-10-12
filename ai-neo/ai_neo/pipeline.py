@@ -207,6 +207,7 @@ class TaskPipeline:
             and bool(outcome.answer.strip())
             and not outcome.interrupted
             and outcome.error is None
+            and not getattr(self.ui, "stop_requested", False)
         )
 
     def _govern(
@@ -299,7 +300,7 @@ class TaskPipeline:
             verified = {"method": "build_tests", "passed": outcome.build.passed}
         return TaskRecord(
             mode=session.mode,
-            model=self.cfg.ollama.model,
+            model=self.agent.client.model,  # the model really used (it can change mid-session)
             prompt=prompt,
             final_answer=outcome.answer,
             system=session.system_prompt(),

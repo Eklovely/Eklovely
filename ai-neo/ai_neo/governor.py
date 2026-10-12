@@ -174,6 +174,10 @@ class Governor:
     def disable(self) -> None:
         self.enabled = False
 
+    def reset_consent(self) -> None:
+        """Forget the approval: the next call shows what it will send and asks again."""
+        self._consented = False
+
     # -- one critique --------------------------------------------------------------------------
 
     def _client(self) -> Any:
@@ -210,6 +214,8 @@ class Governor:
         self, task_type: str, prompt: str, draft: str, tool_results: Sequence[str] = ()
     ) -> Critique | None:
         """Ask Claude to critique `draft`. Returns None (and explains why) on any problem."""
+        if getattr(self.ui, "stop_requested", False):
+            return None  # the user pressed Stop: nothing leaves this computer
         reason = self.unavailable_reason()
         if reason:
             self.ui.tag("WARN", f"Governor skipped: {reason}.")

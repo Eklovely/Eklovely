@@ -137,8 +137,12 @@ Good to know:
 * The browser never talks to Ollama directly, so there is no CORS or `OLLAMA_ORIGINS` setup.
 * There is one conversation and one running reply at a time. Two windows show the same chat; while a
   reply runs, the other window waits.
-* **Stop** takes effect at the next word the model produces (while a model is still loading it can
-  take a moment). Closing the tab also stops the reply.
+* **Stop** works right away, even while the model is still loading: it cuts the connection to
+  Ollama, kills any script or test run that is in progress, and nothing is sent to Anthropic
+  afterwards. Closing the tab does the same. If a reply was started in another window (or before a
+  reload) you get a Stop button for it too.
+* **New chat** and **Load** ask first when the chat on screen has not been saved; **Save** asks
+  before replacing a different saved chat that has the same name.
 * The usual flags work, for example `ai-neo web --mode code --workspace D:\Projects`. `--yes`
   starts with **Auto-approve** on (file writes and code runs without asking) but never skips the
   governor's "Send it?" question.
@@ -151,7 +155,12 @@ Security model (the tools can write files and run code, so this matters):
   `--host` rejects anything else.
 * Every request needs the random **token** from the link (new on every start). The link is the
   key: do not paste it into chats or screenshots. Anyone, or any program, that has it can use your
-  tools while the server runs. Stop the server with Ctrl+C when you are done.
+  tools while the server runs. Stop the server with Ctrl+C when you are done. The browser that
+  opens by itself gets a short-lived code (good for two minutes) instead of the token, so the
+  secret does not sit in the browser's command line; the page then removes it from the address
+  bar and keeps working after a reload through a cookie the page script cannot read.
+* Idle or half-sent connections are dropped after 30 seconds and at most 64 are open at once. An
+  unanswered Approve / Deny question times out after 15 minutes and runs nothing.
 * The server checks the `Host` and `Origin` headers and requires JSON POSTs, which blocks other web
   pages (including DNS-rebinding tricks) from driving it, and serves the page with a strict
   Content-Security-Policy and no CORS headers. The page stores nothing in your browser.
@@ -324,6 +333,9 @@ Task file format:
   a folder that untrusted programs can modify.
 * `write_file`, `run_python` and `run_tests` ask first. `--yes` removes the questions: use it only
   where you trust the model's output.
+* **Run and repair code** (code mode, on by default; the same in the terminal chat) runs the Python
+  the model writes without asking each time, in a temporary folder and not in a sandbox. Turn it off
+  (`--no-verify`, or the switch in the page) if you do not want that.
 * The governor sends text to Anthropic and costs money. It is off by default.
 * The browser chat (`ai-neo web`) listens on this computer only and needs the secret link printed at
   start-up. Anyone who has the link can use the tools while it runs, so keep it private and never

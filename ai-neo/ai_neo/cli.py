@@ -640,7 +640,13 @@ def cmd_chat(app: App) -> int:
 def cmd_web(app: App) -> int:
     from ai_neo.web.server import serve  # imported here: the web layer imports this module
 
-    offer_first_run_setup(app)
+    if not app.paths.config.exists() and not hasattr(app.args, "config"):
+        # The page shows its own status, so it does not start the terminal wizard.
+        app.ui.say(
+            "No settings file yet, so the defaults are used. "
+            "Run `ai-neo setup` any time for the guided setup.",
+            dim=True,
+        )
     return serve(app, host=app.args.host, port=app.args.port, open_browser=not app.args.no_browser)
 
 

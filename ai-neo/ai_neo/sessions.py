@@ -80,9 +80,26 @@ class Session:
         )
 
 
+_WINDOWS_DEVICE_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
+
+
 def safe_name(name: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip()).strip("._")
-    return cleaned[:60] or "session"
+    """A file-name-safe version of `name`. Letters and digits of any language are kept (so two
+    different non-English names stay different); separators and control characters become `_`,
+    and names Windows reserves for devices (CON, NUL, ...) get a leading underscore."""
+    cleaned = re.sub(r"[^\w.-]+", "_", name.strip()).strip("._")[:60] or "session"
+    if cleaned.split(".")[0].upper() in _WINDOWS_DEVICE_NAMES:
+        cleaned = "_" + cleaned
+    return cleaned
 
 
 class SessionStore:
@@ -97,7 +114,7 @@ class SessionStore:
         session.name = safe_name(label)
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self.path_for(session.name)
-        temp = path.with_suffix(".json.tmp")
+        temp = path.with_name(f"{path.stem}.{uuid.uuid4().hex[:8]}.json.tmp")  # unique per save
         temp.write_text(
             json.dumps(session.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
         )
