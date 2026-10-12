@@ -248,6 +248,11 @@ class ToolRegistry:
 
     def execute(self, call: ToolCall) -> ToolResult:
         """Run one tool call. Never raises; bad calls come back as error results."""
+        if not call.name:
+            return error(
+                "malformed tool call: no tool name. Call one of "
+                f"{', '.join(self._tools)} with JSON arguments."
+            )
         tool = self._tools.get(call.name)
         if tool is None:
             return error(f"unknown tool {call.name!r}. Available tools: {', '.join(self._tools)}.")

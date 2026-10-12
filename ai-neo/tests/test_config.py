@@ -24,7 +24,7 @@ def test_defaults_match_spec() -> None:
     assert cfg.tools.max_steps == 8
     assert cfg.tools.run_python_timeout == 20
     assert cfg.verify.repair_attempts == 3
-    assert cfg.governor.enabled is False
+    assert not hasattr(cfg.governor, "enabled")  # only --govern / /govern on can enable it
     assert cfg.governor.claude_model == ""  # no hard-coded Claude model
     assert cfg.governor.max_rounds == 2
     assert cfg.governor.score_threshold == 8

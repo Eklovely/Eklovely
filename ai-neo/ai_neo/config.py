@@ -59,7 +59,6 @@ class VerifyCfg:
 
 @dataclass(frozen=True)
 class GovernorCfg:
-    enabled: bool
     claude_model: str
     max_rounds: int
     score_threshold: int
@@ -118,7 +117,6 @@ FIELDS: tuple[_Field, ...] = (
     _Field("tools", "test_runner", "runner", "auto", None),
     _Field("tools", "memory_limit_mb", "int", 2048, None, lo=0, hi=1_000_000),
     _Field("verify", "repair_attempts", "int", 3, "AI_NEO_REPAIR_ATTEMPTS", lo=0, hi=10),
-    _Field("governor", "enabled", "bool", False, None),
     _Field("governor", "claude_model", "str", "", "AI_NEO_CLAUDE_MODEL"),
     _Field("governor", "max_rounds", "int", 2, None, lo=0, hi=5),
     _Field("governor", "score_threshold", "int", 8, None, lo=0, hi=10),
@@ -322,7 +320,7 @@ _COMMENTS = {
     "workspace": "The only folder the file tools may read or write.",
     "tools": "Limits for the tool loop and sandboxed code runs (best-effort isolation).",
     "verify": "How many times a failing Python task is sent back to the model for repair.",
-    "governor": "Optional Claude critique. enabled stays false; use --govern or /govern on.",
+    "governor": "Optional Claude critique. Always off at start; use --govern or /govern on.",
     "context": "History is summarized when it passes summarize_at of num_ctx.",
 }
 

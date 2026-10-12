@@ -1,0 +1,37 @@
+{
+  "category": "python",
+  "tasks": [
+    {
+      "id": "python-palindrome",
+      "prompt": "Write a function is_palindrome(s: str) -> bool that returns True if s reads the same forwards and backwards, ignoring case and any character that is not a letter or digit. The empty string is a palindrome. Put it in solution.py.",
+      "check": {
+        "type": "python_tests",
+        "tests": "from solution import is_palindrome\n\n\ndef test_phrases():\n    assert is_palindrome(\"A man, a plan, a canal: Panama\") is True\n    assert is_palindrome(\"race a car\") is False\n    assert is_palindrome(\"No 'x' in Nixon\") is True\n\n\ndef test_edges():\n    assert is_palindrome(\"\") is True\n    assert is_palindrome(\"a\") is True\n    assert is_palindrome(\"ab\") is False\n    assert is_palindrome(\".,\") is True\n"
+      }
+    },
+    {
+      "id": "python-fizzbuzz",
+      "prompt": "Write a function fizzbuzz(n: int) -> list[str] that returns the strings for 1..n: 'Fizz' for multiples of 3, 'Buzz' for multiples of 5, 'FizzBuzz' for multiples of both, otherwise the number as a string. fizzbuzz(0) returns an empty list.",
+      "check": {
+        "type": "python_tests",
+        "tests": "from solution import fizzbuzz\n\n\ndef test_small():\n    assert fizzbuzz(5) == [\"1\", \"2\", \"Fizz\", \"4\", \"Buzz\"]\n\n\ndef test_fifteen():\n    assert fizzbuzz(15)[-1] == \"FizzBuzz\"\n    assert fizzbuzz(15)[8] == \"Fizz\"\n    assert len(fizzbuzz(15)) == 15\n\n\ndef test_zero():\n    assert fizzbuzz(0) == []\n"
+      }
+    },
+    {
+      "id": "python-merge-intervals",
+      "prompt": "Write a function merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]] that merges overlapping or touching intervals (for example (1, 3) and (3, 5) become (1, 5)) and returns them sorted by start. The input may be unsorted and must not be modified.",
+      "check": {
+        "type": "python_tests",
+        "tests": "from solution import merge_intervals\n\n\ndef test_overlap_and_touch():\n    assert merge_intervals([(1, 3), (2, 6), (8, 10), (6, 7)]) == [(1, 7), (8, 10)]\n    assert merge_intervals([(1, 3), (3, 5)]) == [(1, 5)]\n\n\ndef test_unsorted_and_contained():\n    assert merge_intervals([(5, 6), (1, 10), (2, 3)]) == [(1, 10)]\n\n\ndef test_empty_and_input_untouched():\n    assert merge_intervals([]) == []\n    data = [(3, 4), (1, 2)]\n    merge_intervals(data)\n    assert data == [(3, 4), (1, 2)]\n"
+      }
+    },
+    {
+      "id": "python-word-count",
+      "prompt": "Write a function word_count(text: str) -> dict[str, int]. A word is a maximal run of ASCII letters and digits ([A-Za-z0-9]+). Words are counted case-insensitively and the keys are lowercase.",
+      "check": {
+        "type": "python_tests",
+        "tests": "from solution import word_count\n\n\ndef test_basic():\n    assert word_count(\"Hello, hello world\") == {\"hello\": 2, \"world\": 1}\n    assert word_count(\"The cat. The dog!\") == {\"the\": 2, \"cat\": 1, \"dog\": 1}\n\n\ndef test_edges():\n    assert word_count(\"\") == {}\n    assert word_count(\"it's\") == {\"it\": 1, \"s\": 1}\n    assert word_count(\"a1 A1 b2\") == {\"a1\": 2, \"b2\": 1}\n"
+      }
+    }
+  ]
+}

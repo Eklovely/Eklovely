@@ -1,0 +1,35 @@
+{
+  "category": "build",
+  "tasks": [
+    {
+      "id": "build-textstats",
+      "prompt": "Build a small Python module in a file named textstats.py with two functions. count_words(text: str) -> int returns the number of whitespace-separated words (0 for an empty string). most_common(text: str, n: int) -> list[tuple[str, int]] lowercases the words (split on whitespace) and returns the n most frequent as (word, count), highest count first, ties broken alphabetically. Include unit tests.",
+      "check": {
+        "type": "build",
+        "tests": {
+          "acceptance/test_acceptance.py": "from textstats import count_words, most_common\n\n\ndef test_count_words():\n    assert count_words(\"a b  c\\n d\") == 4\n    assert count_words(\"\") == 0\n\n\ndef test_most_common():\n    assert most_common(\"b a b A c\", 2) == [(\"a\", 2), (\"b\", 2)]\n    assert most_common(\"x\", 5) == [(\"x\", 1)]\n    assert most_common(\"\", 3) == []\n"
+        }
+      }
+    },
+    {
+      "id": "build-stack",
+      "prompt": "Build a small Python module in a file named stack.py with a class Stack that has push(item), pop() (raises IndexError when empty), peek() (raises IndexError when empty), is_empty() -> bool and __len__. Include unit tests.",
+      "check": {
+        "type": "build",
+        "tests": {
+          "acceptance/test_acceptance.py": "from stack import Stack\n\n\ndef test_push_pop_order():\n    s = Stack()\n    s.push(1)\n    s.push(2)\n    assert len(s) == 2\n    assert s.peek() == 2\n    assert s.pop() == 2\n    assert s.pop() == 1\n    assert s.is_empty()\n\n\ndef test_empty_errors():\n    s = Stack()\n    for call in (s.pop, s.peek):\n        try:\n            call()\n        except IndexError:\n            continue\n        raise AssertionError('expected IndexError')\n"
+        }
+      }
+    },
+    {
+      "id": "build-todo-list",
+      "prompt": "Build a small Python module in a file named todo.py with a class TodoList. add(title: str) -> int returns a new id starting at 1 and increasing. complete(task_id: int) marks it done and raises KeyError for an unknown id. pending() -> list[str] returns titles of tasks not yet completed, in the order they were added. save(path: str) writes the list to a JSON file and the classmethod load(path: str) -> TodoList reads it back, keeping ids and completion state. Include unit tests.",
+      "check": {
+        "type": "build",
+        "tests": {
+          "acceptance/test_acceptance.py": "import os\nimport tempfile\n\nfrom todo import TodoList\n\n\ndef test_add_complete_pending():\n    t = TodoList()\n    assert t.add('write') == 1\n    assert t.add('test') == 2\n    t.complete(1)\n    assert t.pending() == ['test']\n    try:\n        t.complete(99)\n    except KeyError:\n        pass\n    else:\n        raise AssertionError('expected KeyError')\n\n\ndef test_save_and_load():\n    t = TodoList()\n    t.add('a')\n    t.add('b')\n    t.complete(2)\n    with tempfile.TemporaryDirectory() as d:\n        path = os.path.join(d, 'todo.json')\n        t.save(path)\n        loaded = TodoList.load(path)\n    assert loaded.pending() == ['a']\n    assert loaded.add('c') == 3\n"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "category": "reasoning",
+  "tasks": [
+    {
+      "id": "reasoning-syllogism",
+      "prompt": "All bloops are razzies. All razzies are lazzies. Are all bloops definitely lazzies? Answer yes or no.",
+      "check": {
+        "type": "exact",
+        "answer": "yes"
+      }
+    },
+    {
+      "id": "reasoning-bat-and-ball",
+      "prompt": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How many cents does the ball cost?",
+      "check": {
+        "type": "exact",
+        "answer": "5",
+        "numeric": true
+      }
+    },
+    {
+      "id": "reasoning-height-order",
+      "prompt": "Alice is taller than Bob. Bob is taller than Carol. Dave is shorter than Carol. Who is the second tallest? Answer with a single name.",
+      "check": {
+        "type": "exact",
+        "answer": "Bob"
+      }
+    },
+    {
+      "id": "reasoning-widgets",
+      "prompt": "If 5 machines take 5 minutes to make 5 widgets, how many minutes would 100 machines take to make 100 widgets?",
+      "check": {
+        "type": "exact",
+        "answer": "5",
+        "numeric": true
+      }
+    },
+    {
+      "id": "reasoning-weekday",
+      "prompt": "Today is Wednesday. What day of the week will it be 100 days from today? Answer with the day name.",
+      "check": {
+        "type": "exact",
+        "answer": "Friday"
+      }
+    }
+  ]
+}

@@ -29,7 +29,13 @@ class Message:
         out: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.tool_calls:
             out["tool_calls"] = [
-                {"function": {"name": c.name, "arguments": c.arguments}} for c in self.tool_calls
+                {
+                    "function": {
+                        "name": c.name or "unknown",
+                        "arguments": c.arguments if isinstance(c.arguments, dict) else {},
+                    }
+                }
+                for c in self.tool_calls
             ]
         if self.role == "tool" and self.tool_name:
             out["tool_name"] = self.tool_name

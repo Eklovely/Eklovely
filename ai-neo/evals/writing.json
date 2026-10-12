@@ -1,0 +1,67 @@
+{
+  "category": "writing",
+  "tasks": [
+    {
+      "id": "writing-product-description",
+      "prompt": "Write a product description of 80 to 120 words for a reusable water bottle. It must mention the insulation and the leak-proof lid. Do not use the words 'revolutionary' or 'game-changer'.",
+      "check": {
+        "type": "rubric",
+        "min_words": 80,
+        "max_words": 120,
+        "must_include": [
+          "insulat",
+          "leak"
+        ],
+        "banned": [
+          "revolutionary",
+          "game-changer"
+        ]
+      }
+    },
+    {
+      "id": "writing-decline-email",
+      "prompt": "Write a polite email of 60 to 120 words declining a meeting on Tuesday and proposing Thursday instead. Begin with the line 'Hi Sam,' and end with the sign-off name 'Alex'. Do not use the word 'unfortunately'.",
+      "check": {
+        "type": "rubric",
+        "min_words": 60,
+        "max_words": 120,
+        "must_include": [
+          "Thursday",
+          "Tuesday"
+        ],
+        "banned": [
+          "unfortunately"
+        ],
+        "must_match": [
+          "\\A\\s*Hi Sam,",
+          "Alex\\W*\\Z"
+        ]
+      }
+    },
+    {
+      "id": "writing-three-bullets",
+      "prompt": "List exactly three benefits of unit testing as three bullet points. Each bullet must start with '- ' and be 20 words or fewer. Output only the bullets.",
+      "check": {
+        "type": "rubric",
+        "bullets": {
+          "exact": 3,
+          "max_words_each": 20
+        }
+      }
+    },
+    {
+      "id": "writing-two-paragraphs",
+      "prompt": "Write exactly two paragraphs, 80 to 150 words in total, about why sleep matters. Mention both 'memory' and 'mood'. Separate the paragraphs with a blank line.",
+      "check": {
+        "type": "rubric",
+        "paragraphs": 2,
+        "min_words": 80,
+        "max_words": 150,
+        "must_include": [
+          "memory",
+          "mood"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "category": "computation",
+  "tasks": [
+    {
+      "id": "computation-multiplication",
+      "prompt": "Compute 12345 * 6789 exactly.",
+      "check": {
+        "type": "exact",
+        "answer": "83810205",
+        "numeric": true
+      }
+    },
+    {
+      "id": "computation-factorial",
+      "prompt": "What is 17! (17 factorial) exactly?",
+      "check": {
+        "type": "exact",
+        "answer": "355687428096000",
+        "numeric": true
+      }
+    },
+    {
+      "id": "computation-multiples",
+      "prompt": "What is the sum of all positive integers below 1000 that are divisible by 3 or by 5?",
+      "check": {
+        "type": "exact",
+        "answer": "233168",
+        "numeric": true
+      }
+    },
+    {
+      "id": "computation-modular-power",
+      "prompt": "What is the remainder when 2 to the power of 100 is divided by 1000007?",
+      "check": {
+        "type": "exact",
+        "answer": "698635",
+        "numeric": true
+      }
+    },
+    {
+      "id": "computation-compound-interest",
+      "prompt": "A principal of $1000 earns 5% interest compounded annually for 10 years. What is the final amount, rounded to 2 decimal places?",
+      "check": {
+        "type": "exact",
+        "answer": "1628.89",
+        "numeric": true,
+        "tolerance": 0.005
+      }
+    }
+  ]
+}

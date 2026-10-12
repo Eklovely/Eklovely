@@ -130,7 +130,7 @@ SUMMARIZE = (
     "the user's goals, decisions made, facts and numbers that matter, file names, code that is "
     "still in use (short snippets only), and unresolved questions. Drop pleasantries and dead "
     "ends. Write compact bullet points, under 300 words.\n\n"
-    "$previous"
+    "${previous}"
     "Conversation to summarize:\n$transcript"
 )
 
