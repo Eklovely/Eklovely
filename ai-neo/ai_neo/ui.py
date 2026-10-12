@@ -54,6 +54,8 @@ class UI(Protocol):
 
     def tag(self, status: str, text: str) -> None: ...
 
+    def read_line(self, prompt: str) -> str: ...
+
     def ask(self, prompt: str, default: str | None = None) -> str: ...
 
     def confirm(self, prompt: str, default: bool = True) -> bool: ...
@@ -115,6 +117,10 @@ class _BaseUI:
 
     def _read(self, prompt: str) -> str:
         raise NotImplementedError
+
+    def read_line(self, prompt: str) -> str:
+        """Read one raw line (no default or suffix); raises EOFError at end of input."""
+        return self._read(prompt)
 
     def ask(self, prompt: str, default: str | None = None) -> str:
         suffix = f" [{default}]" if default else ""
