@@ -144,6 +144,17 @@ too long, and `/quit` leaves. Later you can check on everything with `ai-neo doc
 Daily use, in short: open PowerShell, `cd` to the `ai-neo` folder, run `.\.venv\Scripts\Activate.ps1`,
 then `ai-neo`.
 
+**Prefer a browser window?** Run this instead (or as well):
+
+```powershell
+ai-neo web
+```
+
+It starts a small server on your own computer and opens your browser with a chat page. The page
+has buttons for the five modes, a Stop button, and Approve / Deny cards that appear when the
+assistant wants to write a file or run code. Leave the PowerShell window open while you use it, and
+press **Ctrl+C** in that window to stop. The link it prints contains a secret code, so do not share it.
+
 > **About speed:** `qwen3:30b` is large. On a laptop with a small GPU most of it runs on the CPU, so
 > expect roughly 8-15 words per second, and a slow first answer while the model loads into memory.
 > `/think off` makes answers much faster (the model skips its step-by-step thinking).
@@ -192,6 +203,10 @@ export ANTHROPIC_API_KEY="your-key"
 | **`pip install` fails** | red errors mentioning a proxy, SSL or "no matching distribution" | Check your internet or VPN, run `python -m pip install --upgrade pip`, and make sure `python --version` is 3.11+. Behind a company proxy, ask IT for the pip proxy settings. |
 | **Ollama not running** | `[FAIL] Ollama server: no answer at http://localhost:11434` | Start the **Ollama** app from the Start menu (llama icon in the system tray), or run `ollama serve` in a separate PowerShell and leave it open. Then `ai-neo doctor`. |
 | **Ollama not installed / not found** | `Ollama was not found` | Install from <https://ollama.com/download>, then open a **new** PowerShell so PATH refreshes. The usual folder is `%LOCALAPPDATA%\Programs\Ollama`. |
+| **Browser says "Open the link `ai-neo web` printed"** | a plain-text page with that sentence, or HTTP 403 | You opened the address without its secret code. Use the **whole** link from the PowerShell window (it ends with `?token=...`), or just run `ai-neo web` again. |
+| **The port is busy** | `could not open a port starting at 8765` | AI Neo already tries the next nine ports. Close other copies of `ai-neo web`, or pick one: `ai-neo web --port 9100`. |
+| **The page says "Can't reach Ollama"** | red dot at the top of the page | Start the Ollama app, then click the red status text to check again. The page and Ollama are separate programs. |
+| **"A reply is running in another window"** | the Send button is greyed out | Only one reply can run at a time. Wait for it, or press **Stop** in the window that started it. |
 | **Model not found** | `The model 'qwen3:30b' is not installed` / HTTP 404 | Run `ollama pull qwen3:30b` (about 19 GB), or let `ai-neo setup` do it. If the download stops halfway, run it again: it resumes. |
 | **Out of memory, or very slow** | answers crawl, the computer freezes, or Ollama reports an out-of-memory error | Close other programs (browsers use a lot of RAM). Use `/think off`. Lower the context: run `ai-neo setup` and choose `4096`. 24 GB of RAM is the recommended minimum for this model; with less, use a smaller model (`ai-neo --model qwen3:8b`, after `ollama pull qwen3:8b`) or a remote Ollama server. The first answer after a pause is always slow because the model reloads; `keep_alive` keeps it loaded for 30 minutes. |
 | **Port 11434 in use** | Ollama says the address is already in use | Usually another copy of Ollama is already running, which is fine. Otherwise find the program using the port: `netstat -ano \| findstr 11434`. To use another port, set the environment variable `OLLAMA_HOST=127.0.0.1:11435`, restart Ollama, and tell AI Neo: `ai-neo --base-url http://127.0.0.1:11435` (or `base_url` in `config.toml`). |

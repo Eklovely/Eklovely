@@ -156,6 +156,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"ai-neo {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("chat", parents=[common], help="interactive chat (the default)")
+    web = sub.add_parser(
+        "web", parents=[common], help="chat in your browser (only this computer can connect)"
+    )
+    web.add_argument("--port", type=int, default=8765, help="port to listen on (default 8765)")
+    web.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="address to listen on; only localhost addresses are accepted",
+    )
+    web.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     ask = sub.add_parser("ask", parents=[common], help="ask one question and exit")
     ask.add_argument("prompt", nargs="*", help="the question (or pipe it on stdin)")
     ask.add_argument("--tests", metavar="FILE", help="code mode: a test file for solution.py")
@@ -627,6 +637,13 @@ def cmd_chat(app: App) -> int:
         stack.client.close()
 
 
+def cmd_web(app: App) -> int:
+    from ai_neo.web.server import serve  # imported here: the web layer imports this module
+
+    offer_first_run_setup(app)
+    return serve(app, host=app.args.host, port=app.args.port, open_browser=not app.args.no_browser)
+
+
 def read_prompt(args: argparse.Namespace) -> str:
     if args.prompt:
         return " ".join(args.prompt).strip()
@@ -795,6 +812,7 @@ def cmd_config(app: App) -> int:
 
 COMMANDS: dict[str, Callable[[App], int]] = {
     "chat": cmd_chat,
+    "web": cmd_web,
     "ask": cmd_ask,
     "setup": cmd_setup,
     "doctor": cmd_doctor,

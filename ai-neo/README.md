@@ -36,6 +36,7 @@ ai-neo ask "Why is the sky blue?"        # one question, then exit
 ai-neo ask "Write is_prime(n)" --mode code
 ai-neo --mode build                      # then describe a small project; you approve the plan
 ai-neo doctor                            # health check: PASS / WARN / FAIL with a fix for each
+ai-neo web                               # the same assistant in your browser (this computer only)
 ```
 
 ## Modes
@@ -61,6 +62,7 @@ temperature 0.6 / top_p 0.95 / top_k 20; non-thinking uses 0.7 / 0.8 / 20.
 | Command | What it does |
 |---------|--------------|
 | `ai-neo` / `ai-neo chat` | interactive chat (offers the setup wizard on first run) |
+| `ai-neo web [--port N] [--no-browser]` | chat in your browser: a page served from this computer only (see [Browser chat](#browser-chat-ai-neo-web)) |
 | `ai-neo ask "..." [--mode M] [--tests FILE]` | one question; reads stdin if no question is given. Exit code 1 if the answer failed its checks |
 | `ai-neo setup [--non-interactive] [--reset]` | guided setup wizard |
 | `ai-neo doctor` | non-interactive health check (Python, config, RAM, disk, GPU, Ollama, model, workspace, governor, and a quick offline self-test of the tools and safety guards); prints PASS / WARN / FAIL with a one-line fix; exits non-zero on any FAIL |
@@ -102,6 +104,58 @@ returns to the prompt. It never exits the program; use `/quit` or Ctrl+D.
 While the model thinks you see dimmed text (a short live tail with Rich), collapsed into
 `[thought for 12s, ~340 tokens]` once the answer starts. After each reply you get tokens/second,
 token count and elapsed time.
+
+## Browser chat (`ai-neo web`)
+
+```bash
+ai-neo web                              # starts a local server and opens your browser
+ai-neo web --port 9000 --no-browser     # another port; print the link instead of opening it
+```
+
+AI Neo prints a link like `http://127.0.0.1:8765/?token=...` and opens it for you. The page is the
+same assistant as the terminal chat, not a separate one: the same modes, tools, run-and-repair loop,
+build mode, governor, saved chats and logs, all running through the same pipeline.
+
+What the page gives you:
+
+* **Mode buttons** (reason, compute, code, write, build), a **Thinking** switch (auto / on / off),
+  **Tools**, **Run and repair code**, **Auto-approve** and **Claude governor** switches, a model
+  picker and a context meter (how full the model's window is).
+* A live **Work log** inside each reply: the model's thinking, every tool call and its result,
+  earlier drafts and repairs, build plans and test results. It folds away when the reply is done,
+  leaving the answer, a verification line (for example "PASSED after 1 repair attempt(s)"), and the
+  speed.
+* **Approve / Deny cards** where the terminal would ask "Allow this?" (before `write_file`,
+  `run_python`, `run_tests`), "Approve this plan?" in build mode, and "Send it?" before the first
+  governor call, which shows exactly what would be sent to Anthropic.
+* **Stop** (keeps the partial answer), **New chat**, a **Chats** panel (save, load, download as
+  markdown; these are the same saved chats the terminal `/save` and `/load` use) and a **System
+  prompt** box.
+
+Good to know:
+
+* The browser never talks to Ollama directly, so there is no CORS or `OLLAMA_ORIGINS` setup.
+* There is one conversation and one running reply at a time. Two windows show the same chat; while a
+  reply runs, the other window waits.
+* **Stop** takes effect at the next word the model produces (while a model is still loading it can
+  take a moment). Closing the tab also stops the reply.
+* The usual flags work, for example `ai-neo web --mode code --workspace D:\Projects`. `--yes`
+  starts with **Auto-approve** on (file writes and code runs without asking) but never skips the
+  governor's "Send it?" question.
+* Settings changed in the page last until you stop the server; saved defaults still live in
+  `config.toml`.
+
+Security model (the tools can write files and run code, so this matters):
+
+* The server **only accepts connections from this computer**: it binds to a loopback address and
+  `--host` rejects anything else.
+* Every request needs the random **token** from the link (new on every start). The link is the
+  key: do not paste it into chats or screenshots. Anyone, or any program, that has it can use your
+  tools while the server runs. Stop the server with Ctrl+C when you are done.
+* The server checks the `Host` and `Origin` headers and requires JSON POSTs, which blocks other web
+  pages (including DNS-rebinding tricks) from driving it, and serves the page with a strict
+  Content-Security-Policy and no CORS headers. The page stores nothing in your browser.
+* It is built for one person on their own computer. Do not put it behind a tunnel or reverse proxy.
 
 ## Where things live
 
@@ -271,6 +325,9 @@ Task file format:
 * `write_file`, `run_python` and `run_tests` ask first. `--yes` removes the questions: use it only
   where you trust the model's output.
 * The governor sends text to Anthropic and costs money. It is off by default.
+* The browser chat (`ai-neo web`) listens on this computer only and needs the secret link printed at
+  start-up. Anyone who has the link can use the tools while it runs, so keep it private and never
+  expose the port to a network.
 * No telemetry. The only network calls are to your configured Ollama URL and, if you enabled the
   governor, the Anthropic API.
 

@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="ai-neo-token" content="__TOKEN__">
+<title>AI Neo</title>
+<style nonce="__NONCE__">
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #66707d; --border: #d9dee5;
+  --accent: #2f5fd0; --accent-text: #ffffff; --user: #e8eefc; --code-bg: #f0f2f5;
+  --danger: #c0392b; --ok: #2e9e5b; --warn: #b07a0a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b; --panel: #1c2026; --text: #e6e9ee; --muted: #98a2b0; --border: #2d343d;
+    --accent: #6c93f0; --accent-text: #10141a; --user: #242f47; --code-bg: #12151a;
+    --danger: #ef6b5c; --ok: #4cc382; --warn: #e0b04a;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+#app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; max-width: 960px; margin: 0 auto; }
+header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0 4px 0 0; }
+button.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: none; border: 0; padding: 2px 4px; margin-right: auto; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); display: inline-block; }
+.status.ok .dot { background: var(--ok); }
+.status.bad .dot { background: var(--danger); }
+.ctx { font-size: 12px; color: var(--muted); }
+select, input[type=text], textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+select { max-width: 200px; }
+button { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+#modes { display: flex; gap: 6px; overflow-x: auto; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+#modes button { white-space: nowrap; }
+#modes button[aria-pressed=true] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 7px 16px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 13px; }
+.bar label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.bar select { padding: 3px 8px; font-size: 13px; }
+.bar label.off { opacity: .5; }
+.barnote { margin: 0; padding: 6px 16px; font-size: 12px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
+.barnote[hidden], section[hidden] { display: none; }
+section.panel { padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); max-height: 40vh; max-height: 40dvh; overflow-y: auto; }
+section.panel .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+section.panel textarea { width: 100%; min-height: 80px; resize: vertical; }
+.saved { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; border-top: 1px solid var(--border); }
+.saved span.meta { color: var(--muted); margin-right: auto; }
+
+#messages { flex: 1; overflow-y: auto; padding: 16px; }
+.msg { max-width: 100%; margin: 0 0 16px; }
+.msg .role { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+.msg.user .body { background: var(--user); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.assistant .body { overflow-wrap: anywhere; }
+.body > :first-child { margin-top: 0; }
+.body > :last-child { margin-bottom: 0; }
+.body p, .body ul, .body ol, .body blockquote, .body h1, .body h2, .body h3, .body h4, .body h5, .body h6, .body .code, .body .tbl { margin: 0 0 10px; }
+.body li > ul, .body li > ol { margin: 4px 0 0; }
+.body h1 { font-size: 1.35em; } .body h2 { font-size: 1.2em; } .body h3 { font-size: 1.08em; }
+.body h4, .body h5, .body h6 { font-size: 1em; }
+.body ul, .body ol { padding-left: 24px; }
+.body blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted); }
+.body a { color: var(--accent); }
+.body code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .9em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.code-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.code-head button { padding: 1px 8px; font-size: 11px; }
+.code pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
+.code pre code { background: none; padding: 0; font-size: 13px; }
+.tbl { overflow-x: auto; }
+.tbl table { border-collapse: collapse; font-size: 14px; }
+.tbl th, .tbl td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; }
+.tbl th { background: var(--code-bg); }
+
+details.work, details.think, details.toolcard, details.preview, details.draft { margin: 0 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+details.work > summary { cursor: pointer; padding: 5px 12px; font-size: 12px; color: var(--muted); }
+details.work > .trace { padding: 4px 10px 8px; }
+details.think > summary, details.toolcard > summary, details.preview > summary, details.draft > summary { cursor: pointer; padding: 4px 10px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+details.think .think-body, details.toolcard pre, details.preview pre { margin: 0; padding: 0 10px 8px; font-size: 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; font-family: ui-monospace, Consolas, monospace; }
+details.draft .draft-body { padding: 0 10px 8px; font-size: 13px; }
+details.toolcard.bad > summary { color: var(--danger); }
+.tagline { font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
+.tagline.OK, .tagline.PASS { color: var(--ok); }
+.tagline.WARN { color: var(--warn); }
+.tagline.FAIL { color: var(--danger); }
+.tagline.dim { color: var(--muted); }
+.tagline.head { font-weight: 600; margin-top: 6px; }
+.promptcard { border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; background: var(--panel); margin: 8px 0; }
+.promptcard p { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.promptcard .choices { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.promptcard .choices input[type=text] { flex: 1; min-width: 160px; }
+.promptcard .answered { color: var(--muted); font-size: 13px; }
+.mini-tbl { border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+.mini-tbl th, .mini-tbl td { border: 1px solid var(--border); padding: 2px 8px; text-align: left; }
+
+.foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.foot button { font-size: 11px; padding: 1px 8px; }
+.line { margin-top: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.line.ok { color: var(--ok); } .line.bad { color: var(--danger); } .line.muted { color: var(--muted); font-style: italic; }
+.err { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: 8px; color: var(--danger); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.typing { display: inline-flex; gap: 4px; padding: 6px 0; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .typing i { animation: none; opacity: .6; } }
+
+.empty { text-align: center; color: var(--muted); padding: 6vh 12px 0; }
+.empty h2 { color: var(--text); margin: 0 0 6px; font-size: 20px; }
+.empty .help { max-width: 560px; margin: 14px auto 0; text-align: left; font-size: 13px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+.chips button { border-radius: 999px; }
+
+#composer { display: flex; gap: 8px; align-items: flex-end; padding: 10px 16px 6px; background: var(--panel); border-top: 1px solid var(--border); }
+#input { flex: 1; resize: none; max-height: 200px; line-height: 1.45; }
+#composer button { padding: 9px 16px; }
+.hint { padding: 0 16px 8px; font-size: 11px; color: var(--muted); background: var(--panel); }
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 10; max-width: 90vw; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>AI Neo</h1>
+    <button id="status" class="status" type="button" title="Click to re-check"><i class="dot"></i><span id="statusText">Connecting...</span></button>
+    <select id="model" aria-label="Model"></select>
+    <span id="ctx" class="ctx" title="How full the model's context window is">context 0%</span>
+    <button id="chatsBtn" type="button" aria-expanded="false" aria-controls="chats">Chats</button>
+    <button id="newBtn" type="button">New chat</button>
+  </header>
+
+  <nav id="modes" aria-label="Mode"></nav>
+
+  <div class="bar" id="bar">
+    <label>Thinking
+      <select id="think" aria-label="Thinking">
+        <option value="auto">Auto (mode default)</option>
+        <option value="on">On</option>
+        <option value="off">Off</option>
+      </select>
+    </label>
+    <label id="toolsWrap"><input type="checkbox" id="tools"> Tools</label>
+    <label id="verifyWrap"><input type="checkbox" id="verify"> Run and repair code</label>
+    <label id="autoWrap" title="Skip the question before the model writes files or runs code"><input type="checkbox" id="auto"> Auto-approve</label>
+    <label id="governWrap"><input type="checkbox" id="govern"> Claude governor</label>
+    <button id="systemBtn" type="button" aria-expanded="false" aria-controls="systemBox">System prompt</button>
+  </div>
+  <p id="barNote" class="barnote" hidden></p>
+
+  <section id="chats" class="panel" hidden aria-label="Saved chats">
+    <div class="row">
+      <input id="saveName" type="text" placeholder="Name (optional)" aria-label="Name for this chat" autocomplete="off" spellcheck="false">
+      <button id="saveBtn" type="button">Save this chat</button>
+      <button id="exportBtn" type="button">Download as markdown</button>
+    </div>
+    <div id="savedList"></div>
+  </section>
+
+  <section id="systemBox" class="panel" hidden aria-label="System prompt">
+    <textarea id="system" aria-label="Custom system prompt" placeholder="Leave empty to use the built-in prompt for this mode."></textarea>
+    <div class="row">
+      <button id="systemApply" type="button">Apply to this chat</button>
+      <button id="systemReset" type="button">Use the built-in prompt</button>
+    </div>
+  </section>
+
+  <main id="messages" role="log" aria-live="off" aria-busy="false" tabindex="-1" aria-label="Conversation"></main>
+  <div id="liveRegion" class="sr-only" role="status" aria-live="polite"></div>
+
+  <form id="composer" autocomplete="off">
+    <textarea id="input" rows="1" placeholder="Message AI Neo..." aria-label="Message"></textarea>
+    <button id="send" class="primary" type="submit">Send</button>
+    <button id="stop" class="danger" type="button" hidden>Stop</button>
+  </form>
+  <div class="hint">Enter to send, Shift+Enter for a new line. AI Neo __VERSION__ runs on this computer through Ollama.</div>
+</div>
+
+<script nonce="__NONCE__">
+(() => {
+'use strict';
+
+const TOKEN = document.querySelector('meta[name="ai-neo-token"]').content;
+const $ = (s) => document.querySelector(s);
+const el = {
+  status: $('#status'), statusText: $('#statusText'), model: $('#model'), ctx: $('#ctx'),
+  chatsBtn: $('#chatsBtn'), newBtn: $('#newBtn'), modes: $('#modes'),
+  think: $('#think'), tools: $('#tools'), verify: $('#verify'), auto: $('#auto'), govern: $('#govern'),
+  toolsWrap: $('#toolsWrap'), verifyWrap: $('#verifyWrap'), governWrap: $('#governWrap'),
+  systemBtn: $('#systemBtn'), barNote: $('#barNote'),
+  chats: $('#chats'), saveName: $('#saveName'), saveBtn: $('#saveBtn'), exportBtn: $('#exportBtn'), savedList: $('#savedList'),
+  systemBox: $('#systemBox'), system: $('#system'), systemApply: $('#systemApply'), systemReset: $('#systemReset'),
+  messages: $('#messages'), live: $('#liveRegion'), composer: $('#composer'), input: $('#input'),
+  send: $('#send'), stop: $('#stop')
+};
+const S = { st: null, busy: false, live: null, stopTimer: 0, pollTimer: 0 };
+
+function h(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function toast(text) {
+  const t = h('div', 'toast', text);
+  t.setAttribute('role', 'status');
+  document.body.append(t);
+  setTimeout(() => t.remove(), 3500);
+}
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied'); return; } catch (e) { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('Copied');
+  } catch (e) { toast('Copy failed'); }
+}
+
+/* ---------- API ---------- */
+async function api(path, body) {
+  const opts = { headers: { 'X-AI-Neo-Token': TOKEN } };
+  if (body !== undefined) {
+    opts.method = 'POST';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* not JSON */ }
+  if (!res.ok) throw new Error((data && data.error) || 'HTTP ' + res.status);
+  return data;
+}
+
+/* ---------- markdown ----------
+   Text is HTML-escaped first, then formatted, so raw HTML never reaches the page.
+   Placeholders are \x00 ... \x01 and both characters are stripped from the input. */
+const LS = String.fromCharCode(0x2028), PS = String.fromCharCode(0x2029);
+const NEWLINES = new RegExp('\\r\\n?|' + LS + '|' + PS, 'g');
+function emph(s) {
+  return s
+    .replace(/\*\*([^\s*](?:[^*\n]*?[^\s*])?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?!\w)/g, '$1<em>$2</em>');
+}
+function inline(s) {
+  const links = [];
+  s = s.replace(/\[([^\]\n]{1,300})\]\((https?:\/\/(?:[^\s()\x00\x01]|\([^\s()\x00\x01]*\)){1,2000})\)/g, (_, text, url) => {
+    links.push({ text, url });
+    return '\x00L' + (links.length - 1) + '\x01';
+  });
+  s = emph(s);
+  return s.replace(/\x00L(\d+)\x01/g, (_, n) => {
+    const l = links[+n];
+    return l ? '<a href="' + l.url + '" target="_blank" rel="noopener noreferrer">' + emph(l.text) + '</a>' : '';
+  });
+}
+function codeBlockHtml(b) {
+  const lang = b.lang || 'text';
+  return '<div class="code"><div class="code-head"><span>' + esc(lang) +
+    '</span><button type="button" class="copy" aria-label="Copy code (' + esc(lang) + ')">Copy</button></div><pre><code>' +
+    esc(b.code) + '</code></pre></div>';
+}
+function buildList(items) {
+  let html = '';
+  const stack = [];
+  for (const it of items) {
+    const tag = it.ordered ? 'ol' : 'ul';
+    while (stack.length && it.indent < stack[stack.length - 1].indent) html += '</li></' + stack.pop().tag + '>';
+    const top = stack[stack.length - 1];
+    if (top && it.indent === top.indent && top.tag === tag) {
+      html += '</li><li>';
+    } else {
+      if (top && it.indent === top.indent) { html += '</li></' + top.tag + '>'; stack.pop(); }
+      html += '<' + tag + (tag === 'ol' && it.start !== 1 ? ' start="' + it.start + '"' : '') + '><li>';
+      stack.push({ indent: it.indent, tag });
+    }
+    html += inline(it.text);
+  }
+  while (stack.length) html += '</li></' + stack.pop().tag + '>';
+  return html;
+}
+function renderMarkdown(src) {
+  src = String(src).replace(NEWLINES, '\n').replace(/[\x00\x01]/g, '');
+  const blocks = [];
+  let text = src.replace(/^([ \t]*)```([^\n`]*)\n([\s\S]*?)(?:^[ \t]*```[ \t]*$|(?![\s\S]))/gm, (_, indent, lang, code) => {
+    const lines = code.replace(/\n$/, '').split('\n').map((l) => {
+      let k = 0;
+      while (k < indent.length && k < l.length && (l[k] === ' ' || l[k] === '\t')) k++;
+      return l.slice(k);
+    });
+    blocks.push({ lang: lang.trim().slice(0, 30), code: lines.join('\n') });
+    return '\x00B' + (blocks.length - 1) + '\x01';
+  });
+  text = esc(text);
+  const codes = [];
+  text = text.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return '\x00C' + (codes.length - 1) + '\x01'; });
+
+  const lines = text.split('\n');
+  const out = [];
+  const isSep = (l) => l.includes('|') && l.includes('-') && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+  const hr = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
+  const LIST = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const listStart = /^\s*([-*+]|\d+[.)])\s+/;
+  const blockLine = /^\s*\x00B(\d+)\x01\s*$/;
+  const blockStart = /^(#{1,6}\s|\s*([-*+]|\d+[.)])\s|&gt;|\s*\x00B\d+\x01\s*$)/;
+  let i = 0, m;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    if ((m = line.match(blockLine))) { out.push(codeBlockHtml(blocks[+m[1]] || { code: '' })); i++; continue; }
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { const n = m[1].length; out.push('<h' + n + '>' + inline(m[2]) + '</h' + n + '>'); i++; continue; }
+    if (hr.test(line)) { out.push('<hr>'); i++; continue; }
+    if (line.includes('|') && i + 1 < lines.length && isSep(lines[i + 1])) {
+      const head = cells(line); i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim() && lines[i].includes('|')) { rows.push(cells(lines[i])); i++; }
+      out.push('<div class="tbl"><table><thead><tr>' + head.map((c) => '<th>' + inline(c) + '</th>').join('') +
+        '</tr></thead><tbody>' + rows.map((r) => '<tr>' + r.map((c) => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table></div>');
+      continue;
+    }
+    if (listStart.test(line)) {
+      const items = [];
+      while (i < lines.length && (m = lines[i].match(LIST))) {
+        items.push({ indent: m[1].replace(/\t/g, '    ').length, ordered: /\d/.test(m[2]), start: parseInt(m[2], 10) || 1, text: m[3] });
+        i++;
+      }
+      if (items.length) { out.push(buildList(items)); continue; }
+    }
+    if (/^&gt;/.test(line)) {
+      const q = [];
+      while (i < lines.length && /^&gt;/.test(lines[i])) { q.push(lines[i].replace(/^&gt;\s?/, '')); i++; }
+      out.push('<blockquote>' + inline(q.join('<br>')) + '</blockquote>');
+      continue;
+    }
+    const p = [];
+    while (i < lines.length && lines[i].trim() && !blockStart.test(lines[i]) && !hr.test(lines[i]) &&
+           !(lines[i].includes('|') && i + 1 < lines.length && isSep(lines[i + 1]))) { p.push(lines[i]); i++; }
+    if (!p.length) { p.push(lines[i]); i++; }
+    out.push('<p>' + inline(p.join('<br>')) + '</p>');
+  }
+  let html = out.join('\n');
+  html = html.replace(/\x00C(\d+)\x01/g, (_, n) => '<code>' + (codes[+n] ?? '') + '</code>');
+  html = html.replace(/\x00B(\d+)\x01/g, (_, n) => codeBlockHtml(blocks[+n] || { code: '' }));
+  return html;
+}
+
+/* ---------- scrolling ---------- */
+let stick = true;
+function scrollToBottom(force) { if (force || stick) el.messages.scrollTop = el.messages.scrollHeight; }
+el.messages.addEventListener('scroll', () => {
+  stick = el.messages.scrollHeight - el.messages.scrollTop - el.messages.clientHeight < 60;
+});
+el.messages.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button.copy');
+  if (btn) copyText(btn.closest('.code').querySelector('code').textContent);
+});
+
+/* ---------- static message rendering (history) ---------- */
+function typing() {
+  const t = h('span', 'typing');
+  t.append(h('i'), h('i'), h('i'), h('span', 'sr-only', 'Waiting for the model'));
+  return t;
+}
+function buildMsg(role) {
+  const wrap = h('div', 'msg ' + role);
+  wrap.append(h('div', 'role', role === 'user' ? 'You' : role === 'tool' ? 'Tool' : 'AI Neo'), h('div', 'body'));
+  return wrap;
+}
+function addCopyFooter(node, text) {
+  const foot = h('div', 'foot');
+  const b = h('button', null, 'Copy');
+  b.type = 'button';
+  b.addEventListener('click', () => copyText(text));
+  foot.append(b);
+  node.append(foot);
+  return foot;
+}
+function renderHistory(messages) {
+  el.messages.textContent = '';
+  if (!messages.length) { el.messages.append(emptyState()); return; }
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      const d = h('details', 'toolcard');
+      d.append(h('summary', null, 'Tool result: ' + m.name), h('pre', null, m.content));
+      el.messages.append(d);
+      continue;
+    }
+    const node = buildMsg(m.role);
+    const body = node.querySelector('.body');
+    if (m.role === 'user') body.textContent = m.content;
+    else { body.innerHTML = renderMarkdown(m.content); addCopyFooter(node, m.content); }
+    el.messages.append(node);
+  }
+  scrollToBottom(true);
+}
+function emptyState() {
+  const st = S.st;
+  const d = h('div', 'empty');
+  d.append(h('h2', null, 'Chat with AI Neo'));
+  d.append(h('div', null, 'Private and offline. Pick a mode above, then ask.'));
+  const chips = h('div', 'chips');
+  const ideas = {
+    reason: ['Is it better to rent or buy a car I will keep 6 years? Walk through the trade-offs.'],
+    compute: ['What is 17.5% of 2,349.60, and what is 2^40?'],
+    code: ['Write is_prime(n) in Python with a few asserts, then run it.'],
+    write: ['Write a friendly 100-word project update email.'],
+    build: ['Build a small command-line to-do list app in Python with tests.']
+  };
+  const mode = st ? st.settings.mode : 'reason';
+  for (const t of ideas[mode] || ideas.reason) {
+    const b = h('button', null, t);
+    b.type = 'button';
+    b.addEventListener('click', () => send(t));
+    chips.append(b);
+  }
+  d.append(chips);
+  if (st && !st.ollama.ok) d.append(h('div', 'help', st.ollama.error || "Can't reach Ollama."));
+  else if (st && !st.ollama.model_installed) {
+    d.append(h('div', 'help', "The model '" + st.model + "' is not installed in Ollama.\nInstall it with:  ollama pull " + st.model));
+  }
+  return d;
+}
+
+/* ---------- controls ---------- */
+function setStatus(kind, text, title) {
+  el.status.className = 'status ' + kind;
+  el.statusText.textContent = text;
+  el.status.title = title || 'Click to re-check';
+}
+function renderControls() {
+  const st = S.st;
+  if (!st) return;
+  if (!st.ollama.ok) setStatus('bad', "Can't reach Ollama", st.ollama.error);
+  else if (!st.ollama.model_installed) setStatus('bad', 'Model not installed', "Run: ollama pull " + st.model);
+  else setStatus('ok', 'Ollama connected');
+
+  el.model.textContent = '';
+  const names = st.models.slice();
+  if (!names.includes(st.model)) names.unshift(st.model);
+  for (const n of names) {
+    const o = h('option', null, st.models.includes(n) ? n : n + ' (not installed)');
+    o.value = n;
+    el.model.append(o);
+  }
+  el.model.value = st.model;
+
+  el.modes.textContent = '';
+  for (const m of st.modes) {
+    const b = h('button', null, m.name);
+    b.type = 'button';
+    b.title = m.summary + (m.tools.length ? ' | tools: ' + m.tools.join(', ') : ' | no tools');
+    b.setAttribute('aria-pressed', String(m.name === st.settings.mode));
+    b.addEventListener('click', () => setSetting({ mode: m.name }));
+    el.modes.append(b);
+  }
+  const preset = st.modes.find((m) => m.name === st.settings.mode);
+  el.think.value = st.settings.think;
+  el.tools.checked = st.settings.tools;
+  el.tools.disabled = !preset || preset.tools.length === 0;
+  el.toolsWrap.classList.toggle('off', el.tools.disabled);
+  el.verify.checked = st.settings.verify;
+  el.verifyWrap.hidden = st.settings.mode !== 'code';
+  el.auto.checked = st.settings.auto_approve;
+  el.govern.checked = st.settings.govern;
+  const govBlocked = !!st.governor.reason && !st.settings.govern;
+  el.govern.disabled = govBlocked;
+  el.governWrap.classList.toggle('off', govBlocked);
+  el.governWrap.title = govBlocked ? 'Not available: ' + st.governor.reason : 'Let Claude critique answers (sends text to Anthropic and costs money)';
+  const notes = [];
+  if (preset) notes.push('Mode ' + preset.name + ': ' + preset.summary + '. Thinking by default: ' + (preset.think_default ? 'on' : 'off') + '.');
+  if (st.settings.govern) notes.push('Governor is ON: you will be shown exactly what is sent to Anthropic before the first call.');
+  if (st.settings.auto_approve) notes.push('Auto-approve is ON: the model can write files and run code in ' + st.workspace + ' without asking.');
+  el.barNote.textContent = notes.join(' ');
+  el.barNote.hidden = notes.length === 0;
+  el.ctx.textContent = 'context ' + st.session.context_percent + '% of ' + st.session.num_ctx;
+  if (document.activeElement !== el.system) el.system.value = st.settings.system;
+  const remoteBusy = st.busy && !S.busy;
+  el.send.disabled = remoteBusy;
+  el.input.placeholder = remoteBusy ? 'A reply is running in another window...' : 'Message AI Neo (' + st.settings.mode + ')...';
+  clearTimeout(S.pollTimer);
+  if (remoteBusy) S.pollTimer = setTimeout(() => loadState(true), 2000);
+}
+
+async function loadState(keepMessages) {
+  try {
+    S.st = await api('/api/state');
+  } catch (e) {
+    setStatus('bad', 'AI Neo server not reachable', e.message);
+    return;
+  }
+  renderControls();
+  if (!keepMessages && !S.busy) renderHistory(S.st.messages);
+}
+async function setSetting(patch) {
+  if (S.busy) { toast('Wait for the reply to finish, or press Stop.'); return; }
+  try {
+    const r = await api('/api/settings', patch);
+    if (r.warnings && r.warnings.length) toast(r.warnings.join(' '));
+  } catch (e) { toast(e.message); }
+  await loadState(true);
+  if (!S.busy && S.st && !S.st.messages.length) renderHistory([]);
+}
+el.model.addEventListener('change', () => setSetting({ model: el.model.value }));
+el.think.addEventListener('change', () => setSetting({ think: el.think.value }));
+el.tools.addEventListener('change', () => setSetting({ tools: el.tools.checked }));
+el.verify.addEventListener('change', () => setSetting({ verify: el.verify.checked }));
+el.auto.addEventListener('change', () => {
+  if (el.auto.checked && !window.confirm('Let the model write files and run code in your workspace without asking each time?')) {
+    el.auto.checked = false;
+    return;
+  }
+  setSetting({ auto_approve: el.auto.checked });
+});
+el.govern.addEventListener('change', () => setSetting({ govern: el.govern.checked }));
+el.status.addEventListener('click', () => loadState(true));
+el.systemBtn.addEventListener('click', () => togglePanel(el.systemBox, el.systemBtn));
+el.systemApply.addEventListener('click', () => setSetting({ system: el.system.value }));
+el.systemReset.addEventListener('click', () => { el.system.value = ''; setSetting({ system: '' }); });
+el.newBtn.addEventListener('click', async () => {
+  if (S.busy) { toast('Wait for the reply to finish, or press Stop.'); return; }
+  try { await api('/api/new', {}); } catch (e) { toast(e.message); }
+  await loadState();
+  el.input.focus();
+});
+
+/* ---------- saved chats ---------- */
+function togglePanel(panel, button) {
+  const open = panel.hidden;
+  panel.hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
+  if (open && panel === el.chats) refreshSaved();
+}
+async function refreshSaved() {
+  el.savedList.textContent = '';
+  try {
+    const { sessions } = await api('/api/sessions');
+    if (!sessions.length) { el.savedList.append(h('div', 'line muted', 'No saved chats yet.')); return; }
+    for (const s of sessions) {
+      const row = h('div', 'saved');
+      row.append(h('strong', null, s.name), h('span', 'meta', s.mode + ', ' + s.messages + ' messages'));
+      const b = h('button', null, 'Load');
+      b.type = 'button';
+      b.addEventListener('click', async () => {
+        if (S.busy) { toast('Wait for the reply to finish, or press Stop.'); return; }
+        try { await api('/api/load', { name: s.name }); await loadState(); toast('Loaded ' + s.name); } catch (e) { toast(e.message); }
+      });
+      row.append(b);
+      el.savedList.append(row);
+    }
+  } catch (e) { el.savedList.append(h('div', 'line bad', e.message)); }
+}
+el.chatsBtn.addEventListener('click', () => togglePanel(el.chats, el.chatsBtn));
+el.saveBtn.addEventListener('click', async () => {
+  try {
+    const r = await api('/api/save', { name: el.saveName.value.trim() || null });
+    toast('Saved as ' + r.name);
+    el.saveName.value = '';
+    refreshSaved();
+  } catch (e) { toast(e.message); }
+});
+el.exportBtn.addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/export', { headers: { 'X-AI-Neo-Token': TOKEN } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = 'ai-neo-chat.md';
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { toast(e.message); }
+});
+
+/* ---------- a running task ---------- */
+function newLive() {
+  const node = buildMsg('assistant');
+  const body = node.querySelector('.body');
+  body.append(typing());
+  const work = h('details', 'work');
+  work.open = true;
+  const sum = h('summary', null, 'Working...');
+  const trace = h('div', 'trace');
+  work.append(sum, trace);
+  node.insertBefore(work, body);
+  return { node, body, work, sum, trace, seg: null, segs: 0, tools: 0, warns: 0, fails: 0,
+           drafts: 0, curTool: null, queued: false, finished: false, prompts: [] };
+}
+function line(live, cls, text) {
+  const n = h('div', 'tagline ' + cls, text);
+  live.trace.append(n);
+  return n;
+}
+function paintLive(live) {
+  const seg = live.seg;
+  if (!seg) return;
+  if (seg.thinkBody) {
+    seg.thinkBody.textContent = seg.thinking;
+    seg.thinkBody.scrollTop = seg.thinkBody.scrollHeight;
+  }
+  if (seg.answer) live.body.innerHTML = renderMarkdown(seg.answer);
+}
+function schedulePaint(live) {
+  if (live.queued || live.finished) return;
+  live.queued = true;
+  requestAnimationFrame(() => {
+    live.queued = false;
+    if (live.finished) return; // never repaint over the final render
+    paintLive(live);
+    scrollToBottom(false);
+  });
+}
+function startSegment(live) {
+  const prev = live.seg;
+  if (prev && prev.answer.trim()) {
+    live.drafts++;
+    const d = h('details', 'draft');
+    d.append(h('summary', null, 'Earlier draft ' + live.drafts));
+    const b = h('div', 'draft-body');
+    b.innerHTML = renderMarkdown(prev.answer);
+    d.append(b);
+    live.trace.append(d);
+    live.body.textContent = '';
+    live.body.append(typing());
+  }
+  live.seg = { thinking: '', answer: '', thinkBody: null, thinkEl: null };
+  live.segs++;
+}
+function ensureThink(live) {
+  const seg = live.seg;
+  if (seg.thinkEl) return;
+  const d = h('details', 'think');
+  d.open = true;
+  const sum = h('summary', null, 'Thinking...');
+  seg.thinkBody = h('div', 'think-body');
+  d.append(sum, seg.thinkBody);
+  live.trace.append(d);
+  seg.thinkEl = d;
+}
+function endSegment(live) {
+  const seg = live.seg;
+  if (seg && seg.thinkEl) {
+    seg.thinkEl.querySelector('summary').textContent = 'Thought process (about ' + Math.max(1, Math.round(seg.thinking.length / 4)) + ' tokens)';
+    seg.thinkEl.open = false;
+  }
+}
+function respondTo(live, card, p, value, label) {
+  for (const b of card.querySelectorAll('button, input')) b.disabled = true;
+  api('/api/respond', { id: p.id, value }).then((r) => {
+    card.querySelector('.choices').textContent = '';
+    card.querySelector('.choices').append(h('span', 'answered', r.ok ? 'You chose: ' + label : 'That question is no longer waiting.'));
+  }).catch((e) => toast(e.message));
+}
+function showPrompt(live, p) {
+  const card = h('div', 'promptcard');
+  card.setAttribute('role', 'group');
+  card.append(h('p', null, p.text));
+  const choices = h('div', 'choices');
+  if (p.kind === 'ask') {
+    const input = h('input');
+    input.type = 'text';
+    input.setAttribute('aria-label', p.text);
+    const go = h('button', 'primary', 'Send');
+    go.type = 'button';
+    go.addEventListener('click', () => respondTo(live, card, p, input.value, input.value || '(nothing)'));
+    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); go.click(); } });
+    choices.append(input, go);
+    setTimeout(() => input.focus(), 0);
+  } else {
+    p.options.forEach((o, idx) => {
+      const b = h('button', idx === 0 && p.kind !== 'confirm' ? 'primary' : (o.value === 'y' ? 'primary' : ''), o.label);
+      b.type = 'button';
+      b.addEventListener('click', () => respondTo(live, card, p, o.value, o.label));
+      choices.append(b);
+    });
+  }
+  card.append(choices);
+  live.trace.append(card);
+  live.prompts.push(card);
+  live.work.open = true;
+  scrollToBottom(true);
+  const first = card.querySelector('button');
+  if (first) first.focus({ preventScroll: true });
+}
+function handleEvent(live, ev) {
+  switch (ev.type) {
+    case 'start':
+      line(live, 'dim', 'Mode ' + ev.mode + ', thinking ' + (ev.think ? 'on' : 'off') + ', tools ' + (ev.tools ? 'on' : 'off'));
+      break;
+    case 'segment': startSegment(live); break;
+    case 'thinking':
+      if (!live.seg) startSegment(live);
+      ensureThink(live);
+      live.seg.thinking += ev.text;
+      schedulePaint(live);
+      break;
+    case 'answer':
+      if (!live.seg) startSegment(live);
+      live.seg.answer += ev.text;
+      schedulePaint(live);
+      break;
+    case 'segment_end': endSegment(live); break;
+    case 'tool_call': {
+      live.tools++;
+      const d = h('details', 'toolcard');
+      d.append(h('summary', null, 'Tool: ' + ev.name + '(' + ev.args + ') - running...'));
+      live.trace.append(d);
+      live.curTool = { d, name: ev.name, args: ev.args };
+      break;
+    }
+    case 'tool_result': {
+      const t = live.curTool;
+      if (t) {
+        t.d.querySelector('summary').textContent = 'Tool: ' + t.name + '(' + t.args + ') - ' + (ev.ok ? 'ok' : 'failed');
+        t.d.classList.toggle('bad', !ev.ok);
+        t.d.append(h('pre', null, ev.output || '(no output)'));
+        if (!ev.ok) t.d.open = true;
+        live.curTool = null;
+      }
+      break;
+    }
+    case 'tag':
+      if (ev.status === 'WARN') live.warns++;
+      if (ev.status === 'FAIL') live.fails++;
+      line(live, ev.status, '[' + ev.status + '] ' + ev.text);
+      break;
+    case 'say': line(live, ev.dim ? 'dim' : '', ev.text); break;
+    case 'heading': line(live, 'head', ev.text); break;
+    case 'preview': {
+      const d = h('details', 'preview');
+      d.open = true;
+      d.append(h('summary', null, ev.title), h('pre', null, ev.body));
+      live.trace.append(d);
+      break;
+    }
+    case 'table': {
+      if (ev.title) line(live, 'head', ev.title);
+      const t = h('table', 'mini-tbl');
+      const tr = h('tr');
+      for (const c of ev.headers) tr.append(h('th', null, c));
+      t.append(tr);
+      for (const r of ev.rows) { const row = h('tr'); for (const c of r) row.append(h('td', null, c)); t.append(row); }
+      live.trace.append(t);
+      break;
+    }
+    case 'prompt': showPrompt(live, ev); break;
+    case 'done': finishLive(live, ev); break;
+    case 'error': failLive(live, ev.message); break;
+    default: break; // ping, stats, progress
+  }
+  scrollToBottom(false);
+}
+function summarize(live) {
+  const parts = [live.segs + ' model call' + (live.segs === 1 ? '' : 's')];
+  if (live.tools) parts.push(live.tools + ' tool call' + (live.tools === 1 ? '' : 's'));
+  if (live.warns) parts.push(live.warns + ' warning' + (live.warns === 1 ? '' : 's'));
+  if (live.fails) parts.push(live.fails + ' problem' + (live.fails === 1 ? '' : 's'));
+  return 'Work log: ' + parts.join(', ');
+}
+function closeOpenPrompts(live) {
+  for (const card of live.prompts) {
+    const choices = card.querySelector('.choices');
+    if (choices && !choices.querySelector('.answered')) {
+      choices.textContent = '';
+      choices.append(h('span', 'answered', 'Cancelled.'));
+    }
+  }
+}
+function finishLive(live, d) {
+  if (live.finished) return;
+  live.finished = true;
+  endSegment(live);
+  closeOpenPrompts(live);
+  const text = d.answer || (live.seg ? live.seg.answer : '');
+  live.body.textContent = '';
+  if (text) live.body.innerHTML = renderMarkdown(text);
+  live.sum.textContent = summarize(live);
+  live.work.open = live.fails > 0 && !text;
+  if (!live.segs && !live.trace.querySelector('.tagline:not(.dim)') && live.trace.childElementCount <= 1) live.work.hidden = true;
+  const node = live.node;
+  if (d.interrupted) node.append(h('div', 'line muted', 'Stopped. The partial answer was kept.'));
+  if (d.error) node.append(h('div', 'err', d.error));
+  for (const n of d.notes || []) node.append(h('div', 'line muted', n));
+  if (d.verify) node.append(h('div', 'line ' + (d.verify.passed ? 'ok' : 'bad'), d.verify.summary));
+  if (d.build) node.append(h('div', 'line ' + (d.build.passed ? 'ok' : 'bad'), 'Build ' + (d.build.passed ? 'passed' : 'did not pass') + ': ' + d.build.files + ' file(s)' + (d.build.project_dir ? ' in ' + d.build.project_dir : '')));
+  if (d.governor) node.append(h('div', 'line muted', 'Governor: ' + d.governor));
+  const foot = text ? addCopyFooter(node, text) : h('div', 'foot');
+  if (d.stats && d.stats.text) foot.prepend(h('span', null, d.stats.text));
+  if (!text) node.append(foot);
+  if (d.context) el.ctx.textContent = 'context ' + d.context.percent + '% of ' + d.context.num_ctx;
+}
+function failLive(live, message) {
+  if (live.finished) return;
+  finishLive(live, { answer: '', error: message, notes: [], interrupted: false });
+}
+
+async function readEvents(res, onEvent) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  const parse = (l) => {
+    l = l.trim();
+    if (!l) return;
+    let obj;
+    try { obj = JSON.parse(l); } catch (e) { return; }
+    onEvent(obj);
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf('\n')) >= 0) { parse(buf.slice(0, idx)); buf = buf.slice(idx + 1); }
+  }
+  buf += dec.decode();
+  parse(buf);
+}
+
+function setBusy(b) {
+  S.busy = b;
+  el.send.hidden = b;
+  el.send.disabled = b;
+  el.stop.hidden = !b;
+  el.stop.disabled = false;
+  el.stop.textContent = 'Stop';
+  el.messages.setAttribute('aria-busy', String(b));
+  el.live.textContent = b ? 'AI Neo is responding' : 'Response complete';
+}
+
+async function send(text) {
+  if (S.busy) return;
+  text = String(text).trim();
+  if (!text) return;
+  setBusy(true);
+  if (el.messages.querySelector('.empty')) el.messages.textContent = '';
+  const user = buildMsg('user');
+  user.querySelector('.body').textContent = text;
+  el.messages.append(user);
+  const live = newLive();
+  S.live = live;
+  el.messages.append(live.node);
+  stick = true;
+  scrollToBottom(true);
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'X-AI-Neo-Token': TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: text })
+    });
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { msg = (await res.json()).error || msg; } catch (e) { /* keep default */ }
+      throw new Error(msg);
+    }
+    await readEvents(res, (ev) => handleEvent(live, ev));
+    if (!live.finished) failLive(live, 'The connection to AI Neo ended before the reply finished.');
+  } catch (e) {
+    failLive(live, e.message || String(e));
+  } finally {
+    clearTimeout(S.stopTimer);
+    S.live = null;
+    setBusy(false);
+    await loadState(true);
+    const a = document.activeElement;
+    if (!a || a === document.body) el.input.focus();
+  }
+}
+
+el.stop.addEventListener('click', async () => {
+  el.stop.disabled = true;
+  el.stop.textContent = 'Stopping...';
+  if (S.live) closeOpenPrompts(S.live);
+  try { await api('/api/stop', {}); } catch (e) { toast(e.message); }
+  S.stopTimer = setTimeout(() => toast('Still waiting for the model. Stop takes effect at its next word.'), 8000);
+});
+
+/* ---------- composer ---------- */
+function autogrow() {
+  el.input.style.height = 'auto';
+  el.input.style.height = Math.min(el.input.scrollHeight, 200) + 'px';
+}
+el.input.addEventListener('input', autogrow);
+el.input.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); el.composer.requestSubmit(); }
+});
+el.composer.addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const text = el.input.value.trim();
+  if (!text || S.busy) return;
+  if (S.st && S.st.busy) { toast('A reply is running in another window.'); return; }
+  el.input.value = '';
+  autogrow();
+  send(text);
+});
+
+loadState().then(() => el.input.focus());
+})();
+</script>
+</body>
+</html>

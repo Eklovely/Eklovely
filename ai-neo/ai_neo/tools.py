@@ -275,6 +275,10 @@ class ToolRegistry:
         except Exception as exc:  # deliberate: a tool bug must come back as an error, not crash
             return error(f"{type(exc).__name__}: {exc}")
 
+    def set_auto_yes(self, value: bool) -> None:
+        """Skip (True) or restore (False) the "Allow this?" question for file writes and code."""
+        self._auto_yes = value
+
     def _approved(self, tool: Tool, args: dict[str, Any]) -> bool:
         if self._auto_yes:
             return True
